@@ -108,3 +108,5 @@ venv.bak/
 
 # data
 data
+*.params
+*.json
