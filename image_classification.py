@@ -26,7 +26,7 @@ from mxnet import profiler
 from mxnet.gluon import nn
 from mxnet.gluon.model_zoo import vision as models
 import binary_models
-from mxnet import autograd as ag
+from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
 from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
 import numpy as np
@@ -115,6 +115,7 @@ batch_size *= max(1, num_gpus)
 lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
 metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 
+
 def get_model(model, ctx, opt):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': classes}
@@ -140,7 +141,9 @@ def get_model(model, ctx, opt):
     net.cast(opt.dtype)
     return net
 
+
 net = get_model(opt.model, context, opt)
+
 
 def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
     """get dataset iterators"""
@@ -164,6 +167,7 @@ def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
             train_data, val_data = dummy_iterator(batch_size, (3, 224, 224))
     return train_data, val_data
 
+
 def test(ctx, val_data):
     metric.reset()
     val_data.reset()
@@ -176,11 +180,13 @@ def test(ctx, val_data):
         metric.update(label, outputs)
     return metric.get()
 
+
 def update_learning_rate(lr, trainer, epoch, ratio, steps):
     """Set the learning rate to the initial value decayed by ratio every N epochs."""
     new_lr = lr * (ratio ** int(np.sum(np.array(steps) < epoch)))
     trainer.set_learning_rate(new_lr)
     return trainer
+
 
 def save_checkpoint(epoch, top1, best_acc):
     if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0:
@@ -192,6 +198,12 @@ def save_checkpoint(epoch, top1, best_acc):
         fname = os.path.join(opt.prefix, '%s_%sbit_best.params' % (opt.model, opt.bits))
         net.save_parameters(fname)
         logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
+
+
+def get_dummy_data(data_iter, ctx):
+    shapes = (data_iter.provide_data[0].shape, data_iter.provide_label[0].shape)
+    return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
+
 
 def train(opt, ctx):
     if isinstance(ctx, mx.Context):
@@ -205,6 +217,10 @@ def train(opt, ctx):
                             kvstore = kv)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
+    # dummy forward pass to initialize binary layers
+    with autograd.record():
+        data, label = get_dummy_data(train_data, ctx[0])
+        output = net(data)
 
     total_time = 0
     num_epochs = 0
@@ -220,7 +236,7 @@ def train(opt, ctx):
             label = gluon.utils.split_and_load(batch.label[0].astype(opt.dtype), ctx_list=ctx, batch_axis=0)
             outputs = []
             Ls = []
-            with ag.record():
+            with autograd.record():
                 for x, y in zip(data, label):
                     z = net(x)
                     L = loss(z, y)
@@ -228,7 +244,7 @@ def train(opt, ctx):
                     # on all GPUs for better speed on multiple GPUs.
                     Ls.append(L)
                     outputs.append(z)
-                ag.backward(Ls)
+                autograd.backward(Ls)
             trainer.step(batch.data[0].shape[0])
             metric.update(label, outputs)
             if opt.log_interval and not (i+1)%opt.log_interval:
@@ -255,6 +271,15 @@ def train(opt, ctx):
         save_checkpoint(epoch, val_acc[0], best_acc)
     if num_epochs > 1:
         print('Average epoch time: {}'.format(float(total_time)/(num_epochs - 1)))
+
+    if opt.mode != 'hybrid':
+        net.hybridize()
+        # dummy forward pass to save model
+        with autograd.record():
+            data, label = get_dummy_data(train_data, ctx[0])
+            output = net(data)
+    net.export("image-classifier-{}bit".format(opt.bits), epoch=0)
+
 
 def main():
     if opt.builtin_profiler > 0:
@@ -284,6 +309,7 @@ def main():
     if opt.builtin_profiler > 0:
         profiler.set_state('stop')
         print(profiler.dumps())
+
 
 if __name__ == '__main__':
     if opt.profile:
