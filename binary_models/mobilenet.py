@@ -35,7 +35,7 @@ from mxnet.gluon.block import HybridBlock
 # Helpers
 # pylint: disable= too-many-arguments
 def _add_conv(out, channels=1, kernel=1, stride=1, pad=0, num_group=1, active=True):
-    out.add(nn.Conv2D(channels, kernel, stride, pad, groups=num_group, use_bias=False))
+    out.add(nn.BConv2D(channels, kernel, stride, pad, groups=num_group, use_bias=False))
     out.add(nn.BatchNorm(scale=True))
     if active:
         out.add(nn.Activation('relu'))

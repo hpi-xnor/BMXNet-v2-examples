@@ -41,7 +41,7 @@ def _make_fire(squeeze_channels, expand1x1_channels, expand3x3_channels):
 
 def _make_fire_conv(channels, kernel_size, padding=0):
     out = nn.HybridSequential(prefix='')
-    out.add(nn.Conv2D(channels, kernel_size, padding=padding))
+    out.add(nn.BConv2D(channels, kernel_size, padding=padding))
     out.add(nn.Activation('relu'))
     return out
 
@@ -98,7 +98,7 @@ class SqueezeNet(HybridBlock):
             self.features.add(nn.Dropout(0.5))
 
             self.output = nn.HybridSequential(prefix='')
-            self.output.add(nn.Conv2D(classes, kernel_size=1))
+            self.output.add(nn.BConv2D(classes, kernel_size=1))
             self.output.add(nn.Activation('relu'))
             self.output.add(nn.AvgPool2D(13))
             self.output.add(nn.Flatten())
