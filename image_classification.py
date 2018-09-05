@@ -125,7 +125,7 @@ def get_model(model, ctx, opt):
 
     if opt.bits == 1:
         net = binary_models.get_model(model, **kwargs)
-    elif opt.bits <= 32:
+    elif opt.bits < 32:
         raise ValueError("Quantization not yet supported.")
     else:
         net = models.get_model(model, **kwargs)
@@ -184,12 +184,12 @@ def update_learning_rate(lr, trainer, epoch, ratio, steps):
 
 def save_checkpoint(epoch, top1, best_acc):
     if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0:
-        fname = os.path.join(opt.prefix, '%s_%d_acc_%.4f.params' % (opt.model, epoch, top1))
+        fname = os.path.join(opt.prefix, '%s_%sbit_%d_acc_%.4f.params' % (opt.model, opt.bits, epoch, top1))
         net.save_parameters(fname)
         logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
     if top1 > best_acc[0]:
         best_acc[0] = top1
-        fname = os.path.join(opt.prefix, '%s_best.params' % (opt.model))
+        fname = os.path.join(opt.prefix, '%s_%sbit_best.params' % (opt.model, opt.bits))
         net.save_parameters(fname)
         logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
 
