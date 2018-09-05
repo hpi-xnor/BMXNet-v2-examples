@@ -43,20 +43,16 @@ class AlexNet(HybridBlock):
                 self.features.add(nn.Conv2D(64, kernel_size=11, strides=4,
                                             padding=2, activation='relu'))
                 self.features.add(nn.MaxPool2D(pool_size=3, strides=2))
-                self.features.add(nn.Conv2D(192, kernel_size=5, padding=2,
-                                            activation='relu'))
+                self.features.add(nn.BConv2D(192, kernel_size=5, padding=2))
                 self.features.add(nn.MaxPool2D(pool_size=3, strides=2))
-                self.features.add(nn.Conv2D(384, kernel_size=3, padding=1,
-                                            activation='relu'))
-                self.features.add(nn.Conv2D(256, kernel_size=3, padding=1,
-                                            activation='relu'))
-                self.features.add(nn.Conv2D(256, kernel_size=3, padding=1,
-                                            activation='relu'))
+                self.features.add(nn.BConv2D(384, kernel_size=3, padding=1))
+                self.features.add(nn.BConv2D(256, kernel_size=3, padding=1))
+                self.features.add(nn.BConv2D(256, kernel_size=3, padding=1))
                 self.features.add(nn.MaxPool2D(pool_size=3, strides=2))
                 self.features.add(nn.Flatten())
-                self.features.add(nn.Dense(4096, activation='relu'))
+                self.features.add(nn.BDense(4096))
                 self.features.add(nn.Dropout(0.5))
-                self.features.add(nn.Dense(4096, activation='relu'))
+                self.features.add(nn.BDense(4096))
                 self.features.add(nn.Dropout(0.5))
 
             self.output = nn.Dense(classes)
