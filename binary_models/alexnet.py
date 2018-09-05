@@ -22,9 +22,9 @@ __all__ = ['AlexNet', 'alexnet']
 
 import os
 
-from ....context import cpu
-from ...block import HybridBlock
-from ... import nn
+from mxnet.context import cpu
+from mxnet.gluon.block import HybridBlock
+from mxnet.gluon import nn
 
 # Net
 class AlexNet(HybridBlock):

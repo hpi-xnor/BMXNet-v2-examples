@@ -27,9 +27,9 @@ __modified_date__ = '18/01/31'
 
 import os
 
-from ... import nn
-from ....context import cpu
-from ...block import HybridBlock
+from mxnet.gluon import nn
+from mxnet.context import cpu
+from mxnet.gluon.block import HybridBlock
 
 
 # Helpers

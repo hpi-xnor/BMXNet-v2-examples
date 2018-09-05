@@ -26,10 +26,10 @@ __all__ = ['VGG',
 
 import os
 
-from ....context import cpu
-from ....initializer import Xavier
-from ...block import HybridBlock
-from ... import nn
+from mxnet.context import cpu
+from mxnet.initializer import Xavier
+from mxnet.gluon.block import HybridBlock
+from mxnet.gluon import nn
 
 
 class VGG(HybridBlock):
