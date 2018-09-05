@@ -25,6 +25,7 @@ from mxnet import gluon
 from mxnet import profiler
 from mxnet.gluon import nn
 from mxnet.gluon.model_zoo import vision as models
+import binary_models
 from mxnet import autograd as ag
 from mxnet.test_utils import get_mnist_iterator
 from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
@@ -46,6 +47,8 @@ fh.setFormatter(formatter)
 
 # CLI
 parser = argparse.ArgumentParser(description='Train a model for image classification.')
+parser.add_argument('--bits', type=int, default=32,
+                    help='number of bits')
 parser.add_argument('--dataset', type=str, default='cifar10',
                     help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
 parser.add_argument('--data-dir', type=str, default='',
@@ -120,7 +123,13 @@ def get_model(model, ctx, opt):
     elif model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    net = models.get_model(model, **kwargs)
+    if opt.bits == 1:
+        net = binary_models.get_model(model, **kwargs)
+    elif opt.bits <= 32:
+        raise ValueError("Quantization not yet supported.")
+    else:
+        net = models.get_model(model, **kwargs)
+
     if opt.resume:
         net.load_parameters(opt.resume)
     elif not opt.use_pretrained:

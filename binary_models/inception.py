@@ -215,6 +215,7 @@ def inception_v3(pretrained=False, ctx=cpu(),
     """
     net = Inception3(**kwargs)
     if pretrained:
-        from ..model_store import get_model_file
-        net.load_parameters(get_model_file('inceptionv3', root=root), ctx=ctx)
+        raise ValueError("No pretrained model exists, yet.")
+        # from ..model_store import get_model_file
+        # net.load_parameters(get_model_file('inceptionv3', root=root), ctx=ctx)
     return net

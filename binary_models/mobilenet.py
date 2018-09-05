@@ -197,12 +197,13 @@ def get_mobilenet(multiplier, pretrained=False, ctx=cpu(),
     net = MobileNet(multiplier, **kwargs)
 
     if pretrained:
-        from ..model_store import get_model_file
-        version_suffix = '{0:.2f}'.format(multiplier)
-        if version_suffix in ('1.00', '0.50'):
-            version_suffix = version_suffix[:-1]
-        net.load_parameters(
-            get_model_file('mobilenet%s' % version_suffix, root=root), ctx=ctx)
+        raise ValueError("No pretrained model exists, yet.")
+        # from ..model_store import get_model_file
+        # version_suffix = '{0:.2f}'.format(multiplier)
+        # if version_suffix in ('1.00', '0.50'):
+        #     version_suffix = version_suffix[:-1]
+        # net.load_parameters(
+        #     get_model_file('mobilenet%s' % version_suffix, root=root), ctx=ctx)
     return net
 
 

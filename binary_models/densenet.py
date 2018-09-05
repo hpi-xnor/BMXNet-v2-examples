@@ -140,8 +140,9 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(),
     num_init_features, growth_rate, block_config = densenet_spec[num_layers]
     net = DenseNet(num_init_features, growth_rate, block_config, **kwargs)
     if pretrained:
-        from ..model_store import get_model_file
-        net.load_parameters(get_model_file('densenet%d'%(num_layers), root=root), ctx=ctx)
+        raise ValueError("No pretrained model exists, yet.")
+        # from ..model_store import get_model_file
+        # net.load_parameters(get_model_file('densenet%d'%(num_layers), root=root), ctx=ctx)
     return net
 
 def densenet121(**kwargs):

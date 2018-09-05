@@ -131,8 +131,9 @@ def get_squeezenet(version, pretrained=False, ctx=cpu(),
     """
     net = SqueezeNet(version, **kwargs)
     if pretrained:
-        from ..model_store import get_model_file
-        net.load_parameters(get_model_file('squeezenet%s'%version, root=root), ctx=ctx)
+        raise ValueError("No pretrained model exists, yet.")
+        # from ..model_store import get_model_file
+        # net.load_parameters(get_model_file('squeezenet%s'%version, root=root), ctx=ctx)
     return net
 
 def squeezenet1_0(**kwargs):

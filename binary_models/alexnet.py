@@ -82,6 +82,7 @@ def alexnet(pretrained=False, ctx=cpu(),
     """
     net = AlexNet(**kwargs)
     if pretrained:
-        from ..model_store import get_model_file
-        net.load_parameters(get_model_file('alexnet', root=root), ctx=ctx)
+        raise ValueError("No pretrained model exists, yet.")
+        # from ..model_store import get_model_file
+        # net.load_parameters(get_model_file('alexnet', root=root), ctx=ctx)
     return net
