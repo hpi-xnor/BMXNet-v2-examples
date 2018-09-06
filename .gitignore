@@ -111,3 +111,6 @@ data
 model
 *.params
 *.json
+*.zip
+*.rec
+*.lst
