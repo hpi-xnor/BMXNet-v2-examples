@@ -53,6 +53,8 @@ parser.add_argument('--dataset', type=str, default='cifar10',
                     help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
 parser.add_argument('--data-dir', type=str, default='',
                     help='training directory of imagenet images, contains train/val subdirs.')
+parser.add_argument('--data-path', type=str, default='.',
+                    help='training directory where cifar10 / mnist data should be or is saved.')
 parser.add_argument('--batch-size', type=int, default=32,
                     help='training batch size per device (CPU/GPU).')
 parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
@@ -154,7 +156,8 @@ def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
                                                   num_parts=num_workers, part_index=rank)
     elif dataset == 'cifar10':
         train_data, val_data = get_cifar10_iterator(batch_size, (3, 32, 32),
-                                                    num_parts=num_workers, part_index=rank)
+                                                    num_parts=num_workers, part_index=rank,
+                                                    dir=opt.data_path)
     elif dataset == 'imagenet':
         if not opt.data_dir:
             raise ValueError('Dir containing raw images in train/val is required for imagenet, plz specify "--data-dir"')

@@ -20,20 +20,37 @@
 import os
 import random
 import logging
+import zipfile
+
 logging.basicConfig(level=logging.INFO)
 
 import mxnet as mx
-from mxnet.test_utils import get_cifar10
+from mxnet.test_utils import download
 from mxnet.gluon.data.vision import ImageFolderDataset
 from mxnet.gluon.data import DataLoader
 from mxnet.contrib.io import DataLoaderIter
 
-def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_index=0):
-    get_cifar10()
+def get_cifar10(dir="data"):
+    """Downloads CIFAR10 dataset into a directory in the current directory with the name `data`,
+    and then extracts all files into the directory `data/cifar`.
+    """
+    if not os.path.isdir(dir):
+        os.makedirs(dir)
+    if (not os.path.exists(os.path.join(dir, 'cifar', 'train.rec'))) or \
+            (not os.path.exists(os.path.join(dir, 'cifar', 'test.rec'))) or \
+            (not os.path.exists(os.path.join(dir, 'cifar', 'train.lst'))) or \
+            (not os.path.exists(os.path.join(dir, 'cifar', 'test.lst'))):
+        zip_file_path = download('http://data.mxnet.io/mxnet/data/cifar10.zip',
+                                 dirname=dir)
+        with zipfile.ZipFile(zip_file_path) as zf:
+            zf.extractall(dir)
+
+def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None):
+    get_cifar10(dir=dir)
 
     train = mx.io.ImageRecordIter(
-        path_imgrec = "data/cifar/train.rec",
-        # mean_img    = "data/cifar/mean.bin",
+        path_imgrec = os.path.join(dir, "cifar", "train.rec"),
+        # mean_img    = os.path.join(dir, "cifar", "mean.bin"),
         resize      = resize,
         data_shape  = data_shape,
         batch_size  = batch_size,
@@ -43,8 +60,8 @@ def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_in
         part_index=part_index)
 
     val = mx.io.ImageRecordIter(
-        path_imgrec = "data/cifar/test.rec",
-        # mean_img    = "data/cifar/mean.bin",
+        path_imgrec = os.path.join(dir, "cifar", "test.rec"),
+        # mean_img    = os.path.join(dir, "cifar", "mean.bin"),
         resize      = resize,
         rand_crop   = False,
         rand_mirror = False,
