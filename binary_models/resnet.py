@@ -35,8 +35,7 @@ from mxnet.gluon import nn
 
 # Helpers
 def _conv3x3(channels, stride, in_channels):
-    return nn.BConv2D(channels, kernel_size=3, strides=stride, padding=1,
-                     use_bias=False, in_channels=in_channels)
+    return nn.BConv2D(channels, kernel_size=3, strides=stride, padding=1, in_channels=in_channels)
 
 
 # Blocks
@@ -60,15 +59,9 @@ class BasicBlockV1(HybridBlock):
         super(BasicBlockV1, self).__init__(**kwargs)
         self.body = nn.HybridSequential(prefix='')
         self.body.add(_conv3x3(channels, stride, in_channels))
-        self.body.add(nn.BatchNorm())
-        self.body.add(nn.Activation('relu'))
         self.body.add(_conv3x3(channels, 1, channels))
-        self.body.add(nn.BatchNorm())
         if downsample:
-            self.downsample = nn.HybridSequential(prefix='')
-            self.downsample.add(nn.BConv2D(channels, kernel_size=1, strides=stride,
-                                          use_bias=False, in_channels=in_channels))
-            self.downsample.add(nn.BatchNorm())
+            self.downsample = nn.BConv2D(channels, kernel_size=1, strides=stride, in_channels=in_channels)
         else:
             self.downsample = None
 
@@ -80,9 +73,7 @@ class BasicBlockV1(HybridBlock):
         if self.downsample:
             residual = self.downsample(residual)
 
-        x = F.Activation(residual+x, act_type='relu')
-
-        return x
+        return residual+x
 
 
 class BottleneckV1(HybridBlock):
@@ -251,7 +242,7 @@ class ResNetV1(HybridBlock):
         with self.name_scope():
             self.features = nn.HybridSequential(prefix='')
             if thumbnail:
-                self.features.add(_conv3x3(channels[0], 1, 0))
+                self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
             else:
                 self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
                 self.features.add(nn.BatchNorm())
@@ -262,7 +253,12 @@ class ResNetV1(HybridBlock):
                 stride = 1 if i == 0 else 2
                 self.features.add(self._make_layer(block, num_layer, channels[i+1],
                                                    stride, i+1, in_channels=channels[i]))
+
+            self.features.add(nn.BatchNorm())
+            self.features.add(nn.Activation('relu'))
+
             self.features.add(nn.GlobalAvgPool2D())
+            self.features.add(nn.Flatten())
 
             self.output = nn.Dense(classes, in_units=channels[-1])
 
@@ -307,7 +303,7 @@ class ResNetV2(HybridBlock):
             self.features = nn.HybridSequential(prefix='')
             self.features.add(nn.BatchNorm(scale=False, center=False))
             if thumbnail:
-                self.features.add(_conv3x3(channels[0], 1, 0))
+                self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
             else:
                 self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
                 self.features.add(nn.BatchNorm())
