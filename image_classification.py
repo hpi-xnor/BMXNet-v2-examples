@@ -61,6 +61,8 @@ parser.add_argument('--gpus', type=str, default='',
                     help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
 parser.add_argument('--epochs', type=int, default=120,
                     help='number of training epochs.')
+parser.add_argument('--optimizer', type=str, default="sgd",
+                    help='the optimizer to use. default is sgd.')
 parser.add_argument('--lr', type=float, default=0.1,
                     help='learning rate. default is 0.1.')
 parser.add_argument('--momentum', type=float, default=0.9,
@@ -205,16 +207,20 @@ def get_dummy_data(data_iter, ctx):
     return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
 
 
+def get_optimizer(opt):
+    params = {'learning_rate': opt.lr, 'wd': opt.wd, 'multi_precision': True}
+    if opt.optimizer == "sgd":
+        params = {'learning_rate': opt.lr, 'wd': opt.wd, 'momentum': opt.momentum, 'multi_precision': True}
+    return opt.optimizer, params
+
+
 def train(opt, ctx):
     if isinstance(ctx, mx.Context):
         ctx = [ctx]
     kv = mx.kv.create(opt.kvstore)
     train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
     net.collect_params().reset_ctx(ctx)
-    trainer = gluon.Trainer(net.collect_params(), 'sgd',
-                            {'learning_rate': opt.lr, 'wd': opt.wd, 'momentum': opt.momentum,
-                             'multi_precision': True},
-                            kvstore = kv)
+    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # dummy forward pass to initialize binary layers
@@ -278,7 +284,7 @@ def train(opt, ctx):
         with autograd.record():
             data, label = get_dummy_data(train_data, ctx[0])
             output = net(data)
-    net.export("image-classifier-{}bit".format(opt.bits), epoch=0)
+    net.export(os.path.join(opt.prefix, "image-classifier-{}bit".format(opt.bits)), epoch=0)
 
 
 def main():
@@ -292,14 +298,15 @@ def main():
         mod = mx.mod.Module(softmax, context=[mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()])
         kv = mx.kv.create(opt.kvstore)
         train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
+        optimizer, optimizer_params = get_optimizer(opt)
         mod.fit(train_data,
                 eval_data = val_data,
                 num_epoch=opt.epochs,
                 kvstore=kv,
                 batch_end_callback = mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
                 epoch_end_callback = mx.callback.do_checkpoint('image-classifier-%s'% opt.model),
-                optimizer = 'sgd',
-                optimizer_params = {'learning_rate': opt.lr, 'wd': opt.wd, 'momentum': opt.momentum, 'multi_precision': True},
+                optimizer = optimizer,
+                optimizer_params = optimizer_params,
                 initializer = mx.init.Xavier(magnitude=2))
         mod.save_parameters('image-classifier-%s-%d-final.params'%(opt.model, opt.epochs))
     else:
