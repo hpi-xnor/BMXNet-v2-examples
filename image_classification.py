@@ -190,7 +190,7 @@ def update_learning_rate(lr, trainer, epoch, ratio, steps):
 
 def save_checkpoint(epoch, top1, best_acc):
     if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0:
-        fname = os.path.join(opt.prefix, '%s_%sbit_%d_acc_%.4f.params' % (opt.model, opt.bits, epoch, top1))
+        fname = os.path.join(opt.prefix, '%s_%sbit_%04d_acc_%.4f.params' % (opt.model, opt.bits, epoch, top1))
         net.save_parameters(fname)
         logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
     if top1 > best_acc[0]:
