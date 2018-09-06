@@ -57,7 +57,8 @@ def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_in
         rand_crop   = True,
         rand_mirror = True,
         num_parts=num_parts,
-        part_index=part_index)
+        part_index=part_index,
+        scale=1/255)
 
     val = mx.io.ImageRecordIter(
         path_imgrec = os.path.join(dir, "cifar", "test.rec"),
@@ -68,7 +69,8 @@ def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_in
         data_shape  = data_shape,
         batch_size  = batch_size,
         num_parts=num_parts,
-        part_index=part_index)
+        part_index=part_index,
+        scale=1/255)
 
     return train, val
 
