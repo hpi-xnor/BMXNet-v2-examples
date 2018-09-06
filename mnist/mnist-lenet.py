@@ -26,6 +26,7 @@ import numpy as np
 import mxnet as mx
 from mxnet import gluon, autograd
 from mxnet.gluon import nn
+from mxboard import SummaryWriter
 
 # Parse CLI arguments
 
@@ -42,7 +43,7 @@ parser.add_argument('--cuda', action='store_true', default=False,
                     help='Train on GPU with CUDA')
 parser.add_argument('--hybridize', action='store_true', default=False,
                     help='Train in symbolic mode')
-parser.add_argument('--bits', type=int, default=1,
+parser.add_argument('--bits', type=int, default=32,
                     help='Number of bits for binarization/quantization')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging training status')
@@ -54,7 +55,7 @@ num_fc = 1000
 num_outputs = 10
 
 # define network
-net = nn.HybridSequential()
+net = nn.HybridSequential(prefix="")
 with net.name_scope():
     if opt.bits == 1:
         net.add(gluon.nn.Conv2D(channels=num_channels_conv, kernel_size=5))
@@ -144,6 +145,14 @@ def train(epochs, ctx):
     if opt.hybridize:
         net.hybridize()
 
+    # collect parameter names for logging the gradients of parameters in each epoch
+    log_param_filter = ".*weight|.*bias"
+    params = net.collect_params(log_param_filter)
+    param_names = params.keys()
+
+    sw = SummaryWriter(logdir='./logs/{}-{}bits/'.format("symbolic" if opt.hybridize else "gluon", opt.bits), flush_secs=5)
+
+    global_step = 0
     for epoch in range(epochs):
         # reset data iterator and metric at begining of epoch.
         metric.reset()
@@ -157,6 +166,8 @@ def train(epochs, ctx):
                 output = net(data)
                 L = loss(output, label)
                 L.backward()
+            sw.add_scalar(tag='cross_entropy', value=L.mean().asscalar(), global_step=global_step)
+            global_step += 1
             # take a gradient step with batch_size equal to data.shape[0]
             trainer.step(data.shape[0])
             # update metric at last.
@@ -166,11 +177,22 @@ def train(epochs, ctx):
                 name, acc = metric.get()
                 print('[Epoch %d Batch %d] Training: %s=%f'%(epoch, i, name, acc))
 
+            if i == 0:
+                sw.add_image('mnist_first_minibatch', data.reshape((opt.batch_size, 1, 28, 28)), epoch)
+
+        grads = [i.grad() for i in net.collect_params(log_param_filter).values()]
+        assert len(grads) == len(param_names)
+        # logging the gradients of parameters for checking convergence
+        for i, name in enumerate(param_names):
+            sw.add_histogram(tag=name, values=grads[i], global_step=global_step, bins=1000)
+
         name, acc = metric.get()
         print('[Epoch %d] Training: %s=%f'%(epoch, name, acc))
+        sw.add_scalar(tag='train_acc', value=acc, global_step=global_step)
 
         name, val_acc = test(ctx)
         print('[Epoch %d] Validation: %s=%f'%(epoch, name, val_acc))
+        sw.add_scalar(tag='valid_acc', value=val_acc, global_step=global_step)
 
     if not opt.hybridize:
         net.hybridize()
@@ -179,6 +201,8 @@ def train(epochs, ctx):
             output = net(data)
             L = loss(output, label)
     net.export("mnist-lenet-{}-{}-bit".format("symbolic" if opt.hybridize else "gluon", opt.bits), epoch=1)
+    sw.add_graph(net)
+    sw.close()
 
 
 if __name__ == '__main__':
