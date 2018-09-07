@@ -241,6 +241,7 @@ class ResNetV1(HybridBlock):
         assert len(layers) == len(channels) - 1
         with self.name_scope():
             self.features = nn.HybridSequential(prefix='')
+            self.features.add(nn.BatchNorm())
             if thumbnail:
                 self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
             else:
