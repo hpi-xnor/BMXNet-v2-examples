@@ -25,6 +25,7 @@ import os
 from mxnet.context import cpu
 from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
+from mxnet import base
 
 # Net
 class AlexNet(HybridBlock):
@@ -64,7 +65,7 @@ class AlexNet(HybridBlock):
 
 # Constructor
 def alexnet(pretrained=False, ctx=cpu(),
-            root=os.path.join('~', '.mxnet', 'models'), **kwargs):
+            root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""AlexNet model from the `"One weird trick..." <https://arxiv.org/abs/1404.5997>`_ paper.
 
     Parameters
@@ -73,7 +74,7 @@ def alexnet(pretrained=False, ctx=cpu(),
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default $MXNET_HOME/models
         Location for keeping the model parameters.
     """
     net = AlexNet(**kwargs)

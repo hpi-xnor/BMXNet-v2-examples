@@ -30,6 +30,7 @@ from mxnet.context import cpu
 from mxnet.initializer import Xavier
 from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
+from mxnet import base
 
 
 class VGG(HybridBlock):
@@ -95,7 +96,7 @@ vgg_spec = {11: ([1, 1, 2, 2, 2], [64, 128, 256, 512, 512]),
 
 # Constructors
 def get_vgg(num_layers, pretrained=False, ctx=cpu(),
-            root=os.path.join('~', '.mxnet', 'models'), **kwargs):
+            root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""VGG model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
     <https://arxiv.org/abs/1409.1556>`_ paper.
 
@@ -107,7 +108,7 @@ def get_vgg(num_layers, pretrained=False, ctx=cpu(),
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default $MXNET_HOME/models
         Location for keeping the model parameters.
     """
     layers, filters = vgg_spec[num_layers]
@@ -130,7 +131,7 @@ def vgg11(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     return get_vgg(11, **kwargs)
@@ -145,7 +146,7 @@ def vgg13(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     return get_vgg(13, **kwargs)
@@ -160,7 +161,7 @@ def vgg16(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     return get_vgg(16, **kwargs)
@@ -175,7 +176,7 @@ def vgg19(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     return get_vgg(19, **kwargs)
@@ -191,7 +192,7 @@ def vgg11_bn(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     kwargs['batch_norm'] = True
@@ -208,7 +209,7 @@ def vgg13_bn(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     kwargs['batch_norm'] = True
@@ -225,7 +226,7 @@ def vgg16_bn(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     kwargs['batch_norm'] = True
@@ -242,7 +243,7 @@ def vgg19_bn(**kwargs):
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
         The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
+    root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
     kwargs['batch_norm'] = True
