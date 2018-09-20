@@ -31,7 +31,7 @@ from mxnet import base
 # Helpers
 def _make_basic_conv(**kwargs):
     out = nn.HybridSequential(prefix='')
-    out.add(nn.BConv2D(use_bias=False, **kwargs))
+    out.add(nn.QConv2D(use_bias=False, **kwargs))
     out.add(nn.BatchNorm(epsilon=0.001))
     out.add(nn.Activation('relu'))
     return out

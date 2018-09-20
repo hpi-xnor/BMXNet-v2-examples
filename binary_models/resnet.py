@@ -36,7 +36,7 @@ from mxnet import base
 
 # Helpers
 def _conv3x3(channels, stride, in_channels):
-    return nn.BConv2D(channels, kernel_size=3, strides=stride, padding=1, in_channels=in_channels)
+    return nn.QConv2D(channels, kernel_size=3, strides=stride, padding=1, in_channels=in_channels)
 
 
 # Blocks
@@ -62,7 +62,7 @@ class BasicBlockV1(HybridBlock):
         self.body.add(_conv3x3(channels, stride, in_channels))
         self.body.add(_conv3x3(channels, 1, channels))
         if downsample:
-            self.downsample = nn.BConv2D(channels, kernel_size=1, strides=stride, in_channels=in_channels)
+            self.downsample = nn.QConv2D(channels, kernel_size=1, strides=stride, in_channels=in_channels)
         else:
             self.downsample = None
 
@@ -96,18 +96,18 @@ class BottleneckV1(HybridBlock):
     def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
         super(BottleneckV1, self).__init__(**kwargs)
         self.body = nn.HybridSequential(prefix='')
-        self.body.add(nn.BConv2D(channels//4, kernel_size=1, strides=stride))
+        self.body.add(nn.QConv2D(channels // 4, kernel_size=1, strides=stride))
         self.body.add(nn.BatchNorm())
         self.body.add(nn.Activation('relu'))
         self.body.add(_conv3x3(channels//4, 1, channels//4))
         self.body.add(nn.BatchNorm())
         self.body.add(nn.Activation('relu'))
-        self.body.add(nn.BConv2D(channels, kernel_size=1, strides=1))
+        self.body.add(nn.QConv2D(channels, kernel_size=1, strides=1))
         self.body.add(nn.BatchNorm())
         if downsample:
             self.downsample = nn.HybridSequential(prefix='')
-            self.downsample.add(nn.BConv2D(channels, kernel_size=1, strides=stride,
-                                          use_bias=False, in_channels=in_channels))
+            self.downsample.add(nn.QConv2D(channels, kernel_size=1, strides=stride,
+                                           use_bias=False, in_channels=in_channels))
             self.downsample.add(nn.BatchNorm())
         else:
             self.downsample = None
@@ -148,8 +148,8 @@ class BasicBlockV2(HybridBlock):
         self.bn2 = nn.BatchNorm()
         self.conv2 = _conv3x3(channels, 1, channels)
         if downsample:
-            self.downsample = nn.BConv2D(channels, 1, stride, use_bias=False,
-                                        in_channels=in_channels)
+            self.downsample = nn.QConv2D(channels, 1, stride, use_bias=False,
+                                         in_channels=in_channels)
         else:
             self.downsample = None
 
@@ -188,14 +188,14 @@ class BottleneckV2(HybridBlock):
     def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
         super(BottleneckV2, self).__init__(**kwargs)
         self.bn1 = nn.BatchNorm()
-        self.conv1 = nn.BConv2D(channels//4, kernel_size=1, strides=1, use_bias=False)
+        self.conv1 = nn.QConv2D(channels // 4, kernel_size=1, strides=1, use_bias=False)
         self.bn2 = nn.BatchNorm()
         self.conv2 = _conv3x3(channels//4, stride, channels//4)
         self.bn3 = nn.BatchNorm()
-        self.conv3 = nn.BConv2D(channels, kernel_size=1, strides=1, use_bias=False)
+        self.conv3 = nn.QConv2D(channels, kernel_size=1, strides=1, use_bias=False)
         if downsample:
-            self.downsample = nn.BConv2D(channels, 1, stride, use_bias=False,
-                                        in_channels=in_channels)
+            self.downsample = nn.QConv2D(channels, 1, stride, use_bias=False,
+                                         in_channels=in_channels)
         else:
             self.downsample = None
 
