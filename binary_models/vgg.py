@@ -53,11 +53,11 @@ class VGG(HybridBlock):
         assert len(layers) == len(filters)
         with self.name_scope():
             self.features = self._make_features(layers, filters, batch_norm)
-            self.features.add(nn.BDense(4096, weight_initializer='normal',
-                                       bias_initializer='zeros'))
+            self.features.add(nn.QDense(4096, weight_initializer='normal',
+                                        bias_initializer='zeros'))
             self.features.add(nn.Dropout(rate=0.5))
-            self.features.add(nn.BDense(4096, weight_initializer='normal',
-                                       bias_initializer='zeros'))
+            self.features.add(nn.QDense(4096, weight_initializer='normal',
+                                        bias_initializer='zeros'))
             self.features.add(nn.Dropout(rate=0.5))
             self.output = nn.Dense(classes,
                                    weight_initializer='normal',
@@ -68,7 +68,7 @@ class VGG(HybridBlock):
         first = True
         for i, num in enumerate(layers):
             for _ in range(num):
-                conv_block = nn.Conv2D if first else nn.BConv2D
+                conv_block = nn.Conv2D if first else nn.QConv2D
                 first = False
                 featurizer.add(conv_block(filters[i], kernel_size=3, padding=1,
                                          weight_initializer=Xavier(rnd_type='gaussian',

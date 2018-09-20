@@ -63,14 +63,16 @@ with net.name_scope():
         net.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
         net.add(gluon.nn.BatchNorm(axis=1, center=True, scale=True))
 
-        net.add(gluon.nn.BConv2D(channels=num_channels_conv, kernel_size=5))
+        net.add(gluon.nn.QActivation())
+        net.add(gluon.nn.QConv2D(channels=num_channels_conv, kernel_size=5))
         net.add(gluon.nn.BatchNorm(axis=1, center=True, scale=True))
         net.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
 
         # The Flatten layer collapses all axis, except the first one, into one axis.
         net.add(gluon.nn.Flatten())
 
-        net.add(gluon.nn.BDense(num_fc))
+        net.add(gluon.nn.QActivation())
+        net.add(gluon.nn.QDense(num_fc))
         net.add(gluon.nn.BatchNorm(axis=1, center=True, scale=True))
         net.add(gluon.nn.Activation(activation=act))
 
