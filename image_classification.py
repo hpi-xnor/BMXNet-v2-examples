@@ -23,12 +23,12 @@ import logging
 import mxnet as mx
 from mxnet import gluon
 from mxnet import profiler
-from mxnet.gluon import nn
 from mxnet.gluon.model_zoo import vision as models
 import binary_models
 from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
 from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
+from contextlib import redirect_stdout
 import numpy as np
 
 from data import *
@@ -48,7 +48,9 @@ fh.setFormatter(formatter)
 # CLI
 parser = argparse.ArgumentParser(description='Train a model for image classification.')
 parser.add_argument('--bits', type=int, default=32,
-                    help='number of bits')
+                    help='number of weight bits')
+parser.add_argument('--bits-a', type=int, default=32,
+                    help='number of bits for activation')
 parser.add_argument('--dataset', type=str, default='cifar10',
                     help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
 parser.add_argument('--data-dir', type=str, default='',
@@ -77,8 +79,6 @@ parser.add_argument('--mode', type=str,
                     help='mode in which to train the model. options are symbolic, imperative, hybrid')
 parser.add_argument('--model', type=str, required=True,
                     help='type of model to use. see vision_model for options.')
-parser.add_argument('--use-thumbnail', action='store_true',
-                    help='use thumbnail or not in resnet. default is false.')
 parser.add_argument('--batch-norm', action='store_true',
                     help='enable batch normalization or not in vgg. default is false.')
 parser.add_argument('--use-pretrained', action='store_true',
@@ -101,6 +101,8 @@ parser.add_argument('--kvstore', type=str, default='device',
                     help='kvstore to use for trainer/module.')
 parser.add_argument('--log-interval', type=int, default=50,
                     help='Number of batches to wait before logging.')
+parser.add_argument('--plot-network', type=str, default=None,
+                    help='Whether to output the network plot.')
 parser.add_argument('--profile', action='store_true',
                     help='Option to turn on memory profiling for front-end, '\
                          'and prints out the memory usage by python function at the end.')
@@ -123,17 +125,12 @@ metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 def get_model(model, ctx, opt):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': classes}
-    if model.startswith('resnet'):
-        kwargs['thumbnail'] = opt.use_thumbnail
+    if model.startswith('resnet') and dataset == "cifar10":
+        kwargs['thumbnail'] = True
     elif model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    if opt.bits == 1:
-        net = binary_models.get_model(model, **kwargs)
-    elif opt.bits < 32:
-        raise ValueError("Quantization not yet supported.")
-    else:
-        net = models.get_model(model, **kwargs)
+    net = binary_models.get_model(model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)
@@ -144,6 +141,15 @@ def get_model(model, ctx, opt):
             net.initialize(mx.init.Xavier(magnitude=2))
     net.cast(opt.dtype)
     return net
+
+
+def get_shape(dataset):
+    if dataset == 'mnist':
+        return (1, 1, 28, 28)
+    elif dataset == 'cifar10':
+        return (1, 3, 32, 32)
+    elif dataset == 'imagenet' or dataset == 'dummy':
+        return (1, 3, 299, 299) if model_name == 'inceptionv3' else (1, 3, 224, 224)
 
 
 net = get_model(opt.model, context, opt)
@@ -160,7 +166,7 @@ def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
                                                     dir=opt.data_path)
     elif dataset == 'imagenet':
         if not opt.data_dir:
-            raise ValueError('Dir containing raw images in train/val is required for imagenet, plz specify "--data-dir"')
+            raise ValueError('Dir containing rec files is required for imagenet, please specify "--data-dir"')
         if model_name == 'inceptionv3':
             train_data, val_data = get_imagenet_iterator(opt.data_dir, batch_size, opt.num_workers, 299, opt.dtype)
         else:
@@ -231,6 +237,15 @@ def train(opt, ctx):
         data, label = get_dummy_data(train_data, ctx[0])
         output = net(data)
 
+    if opt.plot_network is not None:
+        x = mx.sym.var('data')
+        sym = net(x)
+        with open('{}.txt'.format(opt.plot_network), 'w') as f:
+            with redirect_stdout(f):
+                mx.viz.print_summary(sym, shape={"data": get_shape(dataset)})
+        a = mx.viz.plot_network(sym, shape={"data": get_shape(dataset)})
+        a.render('{}.gv'.format(opt.plot_network), view=True)
+
     total_time = 0
     num_epochs = 0
     best_acc = [0]
@@ -298,7 +313,7 @@ def main():
         data = mx.sym.var('data')
         out = net(data)
         softmax = mx.sym.SoftmaxOutput(out, name='softmax')
-        mod = mx.mod.Module(softmax, context=[mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()])
+        mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
         kv = mx.kv.create(opt.kvstore)
         train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
         optimizer, optimizer_params = get_optimizer(opt)

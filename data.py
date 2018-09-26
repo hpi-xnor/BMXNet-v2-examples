@@ -30,6 +30,7 @@ from mxnet.gluon.data.vision import ImageFolderDataset
 from mxnet.gluon.data import DataLoader
 from mxnet.contrib.io import DataLoaderIter
 
+
 def get_cifar10(dir="data"):
     """Downloads CIFAR10 dataset into a directory in the current directory with the name `data`,
     and then extracts all files into the directory `data/cifar`.
@@ -45,38 +46,56 @@ def get_cifar10(dir="data"):
         with zipfile.ZipFile(zip_file_path) as zf:
             zf.extractall(dir)
 
+
+def as_kwargs(**kwargs):
+    return kwargs
+
+
+def get_augmented_train_val(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None,
+                            train_path=("cifar", "train.rec"), val_path=("cifar", "test.rec"),
+                            aug_level=1, mean_subtraction=False):
+    train_kwargs = as_kwargs(path_imgrec=os.path.join(dir, *train_path),
+                             resize=resize,
+                             data_shape=data_shape,
+                             batch_size=batch_size,
+                             rand_crop=False,
+                             rand_mirror=False,
+                             num_parts=num_parts,
+                             part_index=part_index)
+
+    val_kwargs = as_kwargs(path_imgrec=os.path.join(dir, *val_path),
+                           resize=resize,
+                           rand_crop=False,
+                           rand_mirror=False,
+                           data_shape=data_shape,
+                           batch_size=batch_size,
+                           num_parts=num_parts,
+                           part_index=part_index, )
+    if aug_level >= 1:
+        train_kwargs.update(as_kwargs(rand_crop=True, rand_mirror=True))
+    if aug_level >= 2:
+        train_kwargs.update(as_kwargs(random_h=36, random_s=50, random_l=50))
+    if aug_level >= 3:
+        train_kwargs.update(as_kwargs(max_rotate_angle=10, max_shear_ratio=0.1, max_aspect_ratio=0.25))
+    if mean_subtraction:
+        rgb_mean = '123.68,116.779,103.939'
+        rgb_mean = [float(i) for i in rgb_mean.split(',')]
+        mean_args = as_kwargs(mean_r=rgb_mean[0], mean_g=rgb_mean[1], mean_b=rgb_mean[2])
+        train_kwargs.update(mean_args)
+        val_kwargs.update(mean_args)
+
+    return mx.io.ImageRecordIter(**train_kwargs), mx.io.ImageRecordIter(**val_kwargs)
+
+
 def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None):
     get_cifar10(dir=dir)
 
-    train = mx.io.ImageRecordIter(
-        path_imgrec = os.path.join(dir, "cifar", "train.rec"),
-        # mean_img    = os.path.join(dir, "cifar", "mean.bin"),
-        resize      = resize,
-        data_shape  = data_shape,
-        batch_size  = batch_size,
-        rand_crop   = True,
-        rand_mirror = True,
-        num_parts=num_parts,
-        part_index=part_index,
-        scale=1/255)
+    return get_augmented_train_val(batch_size, data_shape, resize, num_parts, part_index, dir)
 
-    val = mx.io.ImageRecordIter(
-        path_imgrec = os.path.join(dir, "cifar", "test.rec"),
-        # mean_img    = os.path.join(dir, "cifar", "mean.bin"),
-        resize      = resize,
-        rand_crop   = False,
-        rand_mirror = False,
-        data_shape  = data_shape,
-        batch_size  = batch_size,
-        num_parts=num_parts,
-        part_index=part_index,
-        scale=1/255)
-
-    return train, val
 
 def get_imagenet_transforms(data_shape=224, dtype='float32'):
     def train_transform(image, label):
-        image, _ = mx.image.random_size_crop(image, (data_shape, data_shape), 0.08, (3/4., 4/3.))
+        image, _ = mx.image.random_size_crop(image, (data_shape, data_shape), 0.08, (3 / 4., 4 / 3.))
         image = mx.nd.image.random_flip_left_right(image)
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
@@ -88,7 +107,9 @@ def get_imagenet_transforms(data_shape=224, dtype='float32'):
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         return mx.nd.cast(image, dtype), label
+
     return train_transform, val_transform
+
 
 def get_imagenet_iterator(root, batch_size, num_workers, data_shape=224, dtype='float32'):
     """Dataset loader with preprocessing."""
@@ -109,7 +130,7 @@ def get_imagenet_iterator(root, batch_size, num_workers, data_shape=224, dtype='
 
 
 class DummyIter(mx.io.DataIter):
-    def __init__(self, batch_size, data_shape, batches = 100):
+    def __init__(self, batch_size, data_shape, batches=100):
         super(DummyIter, self).__init__(batch_size)
         self.data_shape = (batch_size,) + data_shape
         self.label_shape = (batch_size,)
@@ -128,8 +149,10 @@ class DummyIter(mx.io.DataIter):
             self._batches = 0
             raise StopIteration
 
+
 def dummy_iterator(batch_size, data_shape):
     return DummyIter(batch_size, data_shape), DummyIter(batch_size, data_shape)
+
 
 class ImagePairIter(mx.io.DataIter):
     def __init__(self, path, data_shape, label_shape, batch_size=64, flag=0, input_aug=None, target_aug=None):
@@ -168,8 +191,8 @@ class ImagePairIter(mx.io.DataIter):
 
             data = mx.nd.concat(*[mx.nd.expand_dims(d, axis=0) for d in data], dim=0)
             label = mx.nd.concat(*[mx.nd.expand_dims(d, axis=0) for d in label], dim=0)
-            data = [mx.nd.transpose(data, axes=(0, 3, 1, 2)).astype('float32')/255]
-            label = [mx.nd.transpose(label, axes=(0, 3, 1, 2)).astype('float32')/255]
+            data = [mx.nd.transpose(data, axes=(0, 3, 1, 2)).astype('float32') / 255]
+            label = [mx.nd.transpose(label, axes=(0, 3, 1, 2)).astype('float32') / 255]
 
             return mx.io.DataBatch(data=data, label=label)
         else:
