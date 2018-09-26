@@ -77,8 +77,6 @@ parser.add_argument('--mode', type=str,
                     help='mode in which to train the model. options are symbolic, imperative, hybrid')
 parser.add_argument('--model', type=str, required=True,
                     help='type of model to use. see vision_model for options.')
-parser.add_argument('--use-thumbnail', action='store_true',
-                    help='use thumbnail or not in resnet. default is false.')
 parser.add_argument('--batch-norm', action='store_true',
                     help='enable batch normalization or not in vgg. default is false.')
 parser.add_argument('--use-pretrained', action='store_true',
@@ -123,8 +121,8 @@ metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 def get_model(model, ctx, opt):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': classes}
-    if model.startswith('resnet'):
-        kwargs['thumbnail'] = opt.use_thumbnail
+    if model.startswith('resnet') and dataset == "cifar10":
+        kwargs['thumbnail'] = True
     elif model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
