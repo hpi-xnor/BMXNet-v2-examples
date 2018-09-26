@@ -23,12 +23,12 @@ import logging
 import mxnet as mx
 from mxnet import gluon
 from mxnet import profiler
-from mxnet.gluon import nn
 from mxnet.gluon.model_zoo import vision as models
 import binary_models
 from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
 from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
+from contextlib import redirect_stdout
 import numpy as np
 
 from data import *
@@ -99,6 +99,8 @@ parser.add_argument('--kvstore', type=str, default='device',
                     help='kvstore to use for trainer/module.')
 parser.add_argument('--log-interval', type=int, default=50,
                     help='Number of batches to wait before logging.')
+parser.add_argument('--plot-network', type=str, default=None,
+                    help='Whether to output the network plot.')
 parser.add_argument('--profile', action='store_true',
                     help='Option to turn on memory profiling for front-end, '\
                          'and prints out the memory usage by python function at the end.')
@@ -142,6 +144,15 @@ def get_model(model, ctx, opt):
             net.initialize(mx.init.Xavier(magnitude=2))
     net.cast(opt.dtype)
     return net
+
+
+def get_shape(dataset):
+    if dataset == 'mnist':
+        return (1, 1, 28, 28)
+    elif dataset == 'cifar10':
+        return (1, 3, 32, 32)
+    elif dataset == 'imagenet' or dataset == 'dummy':
+        return (1, 3, 299, 299) if model_name == 'inceptionv3' else (1, 3, 224, 224)
 
 
 net = get_model(opt.model, context, opt)
@@ -228,6 +239,15 @@ def train(opt, ctx):
     with autograd.record():
         data, label = get_dummy_data(train_data, ctx[0])
         output = net(data)
+
+    if opt.plot_network is not None:
+        x = mx.sym.var('data')
+        sym = net(x)
+        with open('{}.txt'.format(opt.plot_network), 'w') as f:
+            with redirect_stdout(f):
+                mx.viz.print_summary(sym, shape={"data": get_shape(dataset)})
+        a = mx.viz.plot_network(sym, shape={"data": get_shape(dataset)})
+        a.render('{}.gv'.format(opt.plot_network), view=True)
 
     total_time = 0
     num_epochs = 0
