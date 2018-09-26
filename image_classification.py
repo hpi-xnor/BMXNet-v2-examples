@@ -48,7 +48,9 @@ fh.setFormatter(formatter)
 # CLI
 parser = argparse.ArgumentParser(description='Train a model for image classification.')
 parser.add_argument('--bits', type=int, default=32,
-                    help='number of bits')
+                    help='number of weight bits')
+parser.add_argument('--bits-a', type=int, default=32,
+                    help='number of bits for activation')
 parser.add_argument('--dataset', type=str, default='cifar10',
                     help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
 parser.add_argument('--data-dir', type=str, default='',
@@ -128,12 +130,7 @@ def get_model(model, ctx, opt):
     elif model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    if opt.bits == 1:
-        net = binary_models.get_model(model, **kwargs)
-    elif opt.bits < 32:
-        raise ValueError("Quantization not yet supported.")
-    else:
-        net = models.get_model(model, **kwargs)
+    net = binary_models.get_model(model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)
