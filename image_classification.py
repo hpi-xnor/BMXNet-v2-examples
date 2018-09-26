@@ -169,7 +169,7 @@ def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
                                                     dir=opt.data_path)
     elif dataset == 'imagenet':
         if not opt.data_dir:
-            raise ValueError('Dir containing raw images in train/val is required for imagenet, plz specify "--data-dir"')
+            raise ValueError('Dir containing rec files is required for imagenet, please specify "--data-dir"')
         if model_name == 'inceptionv3':
             train_data, val_data = get_imagenet_iterator(opt.data_dir, batch_size, opt.num_workers, 299, opt.dtype)
         else:
