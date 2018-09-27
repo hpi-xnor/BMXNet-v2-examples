@@ -88,7 +88,7 @@ def get_augmented_train_val(batch_size, data_shape, resize=-1, num_parts=1, part
 
 
 def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None,
-                         aug_level=3, mean_subtraction=False):
+                         aug_level=1, mean_subtraction=False):
     get_cifar10(dir=dir)
 
     return get_augmented_train_val(batch_size, data_shape, resize=resize, num_parts=num_parts, part_index=part_index,
