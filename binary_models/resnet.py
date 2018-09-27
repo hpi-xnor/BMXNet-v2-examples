@@ -58,16 +58,16 @@ class BasicBlockV1(HybridBlock):
     in_channels : int, default 0
         Number of input channels. Default is 0, to infer from the graph.
     """
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, **kwargs):
+    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, **kwargs):
         super(BasicBlockV1, self).__init__(**kwargs)
         self.pre_shortcut = nn.HybridSequential(prefix='')
         self.pre_shortcut.add(nn.BatchNorm())
-        self.pre_shortcut.add(nn.QActivation(bits=bits_a))
+        self.pre_shortcut.add(nn.QActivation(bits=bits_a, gradient_cancel_threshold=clip_threshold))
 
         self.body = nn.HybridSequential(prefix='')
         self.body.add(_conv3x3(bits, channels, stride, in_channels))
         self.body.add(nn.BatchNorm())
-        self.body.add(nn.QActivation(bits=bits_a))
+        self.body.add(nn.QActivation(bits=bits_a, gradient_cancel_threshold=clip_threshold))
         self.body.add(_conv3x3(bits, channels, 1, channels))
 
         if downsample:
@@ -246,12 +246,14 @@ class ResNetV1(HybridBlock):
     thumbnail : bool, default False
         Enable thumbnail.
     """
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None, **kwargs):
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
+                 clip_threshold=1.0, **kwargs):
         super(ResNetV1, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
         assert bits is not None and bits_a is not None, "number of bits needs to be set"
         self.bits = bits
         self.bits_a = bits_a
+        self.clip_threshold = clip_threshold
 
         self.features = nn.HybridSequential(prefix='')
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
@@ -281,9 +283,10 @@ class ResNetV1(HybridBlock):
         layer = nn.HybridSequential(prefix='stage%d_'%stage_index)
         with layer.name_scope():
             layer.add(block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                            prefix=''))
+                            clip_threshold=self.clip_threshold, prefix=''))
             for _ in range(layers-1):
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels, prefix=''))
+                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
+                                clip_threshold=self.clip_threshold, prefix=''))
         return layer
 
     def hybrid_forward(self, F, x):
