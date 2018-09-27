@@ -103,6 +103,12 @@ parser.add_argument('--log-interval', type=int, default=50,
                     help='Number of batches to wait before logging.')
 parser.add_argument('--plot-network', type=str, default=None,
                     help='Whether to output the network plot.')
+parser.add_argument('--clip-threshold', type=float, default=1.0,
+                    help='clipping threshold, default is 1.0.')
+parser.add_argument('--augmentation-level', type=int, default=1, choices=[1, 2, 3],
+                    help='augmentation level, default is 1, possible values are: 1, 2, 3.')
+parser.add_argument('--mean-subtraction', action="store_true",
+                    help='whether to subtract ImageNet mean from data')
 parser.add_argument('--profile', action='store_true',
                     help='Option to turn on memory profiling for front-end, '\
                          'and prints out the memory usage by python function at the end.')
@@ -129,6 +135,8 @@ def get_model(model, ctx, opt):
         kwargs['thumbnail'] = True
     elif model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
+    if model.startswith('resnet'):
+        kwargs['clip_threshold'] = opt.clip_threshold
 
     net = binary_models.get_model(model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
 
@@ -161,9 +169,9 @@ def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
         train_data, val_data = get_mnist_iterator(batch_size, (1, 28, 28),
                                                   num_parts=num_workers, part_index=rank)
     elif dataset == 'cifar10':
-        train_data, val_data = get_cifar10_iterator(batch_size, (3, 32, 32),
-                                                    num_parts=num_workers, part_index=rank,
-                                                    dir=opt.data_path)
+        train_data, val_data = get_cifar10_iterator(batch_size, (3, 32, 32), num_parts=num_workers, part_index=rank,
+                                                    dir=opt.data_path, aug_level=opt.augmentation_level,
+                                                    mean_subtraction=opt.mean_subtraction)
     elif dataset == 'imagenet':
         if not opt.data_dir:
             raise ValueError('Dir containing rec files is required for imagenet, please specify "--data-dir"')

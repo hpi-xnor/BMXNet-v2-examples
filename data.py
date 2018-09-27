@@ -70,7 +70,7 @@ def get_augmented_train_val(batch_size, data_shape, resize=-1, num_parts=1, part
                            data_shape=data_shape,
                            batch_size=batch_size,
                            num_parts=num_parts,
-                           part_index=part_index, )
+                           part_index=part_index)
     if aug_level >= 1:
         train_kwargs.update(as_kwargs(rand_crop=True, rand_mirror=True))
     if aug_level >= 2:
@@ -87,10 +87,12 @@ def get_augmented_train_val(batch_size, data_shape, resize=-1, num_parts=1, part
     return mx.io.ImageRecordIter(**train_kwargs), mx.io.ImageRecordIter(**val_kwargs)
 
 
-def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None):
+def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None,
+                         aug_level=3, mean_subtraction=False):
     get_cifar10(dir=dir)
 
-    return get_augmented_train_val(batch_size, data_shape, resize, num_parts, part_index, dir)
+    return get_augmented_train_val(batch_size, data_shape, resize=resize, num_parts=num_parts, part_index=part_index,
+                                   dir=dir, aug_level=aug_level, mean_subtraction=mean_subtraction)
 
 
 def get_imagenet_transforms(data_shape=224, dtype='float32'):
