@@ -105,10 +105,12 @@ parser.add_argument('--plot-network', type=str, default=None,
                     help='Whether to output the network plot.')
 parser.add_argument('--clip-threshold', type=float, default=1.0,
                     help='clipping threshold, default is 1.0.')
-parser.add_argument('--augmentation-level', type=int, default=1, choices=[1, 2, 3],
+parser.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
                     help='augmentation level, default is 1, possible values are: 1, 2, 3.')
 parser.add_argument('--mean-subtraction', action="store_true",
                     help='whether to subtract ImageNet mean from data')
+parser.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
+                    help='weight initialization, default is xavier with magnitude 2.')
 parser.add_argument('--profile', action='store_true',
                     help='Option to turn on memory profiling for front-end, '\
                          'and prints out the memory usage by python function at the end.')
@@ -146,7 +148,7 @@ def get_model(model, ctx, opt):
         if model in ['alexnet']:
             net.initialize(mx.init.Normal())
         else:
-            net.initialize(mx.init.Xavier(magnitude=2))
+            net.initialize(get_initializer())
     net.cast(opt.dtype)
     return net
 
@@ -158,6 +160,13 @@ def get_shape(dataset):
         return (1, 3, 32, 32)
     elif dataset == 'imagenet' or dataset == 'dummy':
         return (1, 3, 299, 299) if model_name == 'inceptionv3' else (1, 3, 224, 224)
+
+
+def get_initializer():
+    if opt.initialization == "default":
+        return mx.init.Xavier(magnitude=2)
+    if opt.initialization == "gaussian":
+        return mx.init.Xavier(rnd_type="gaussian", factor_type="in", magnitude=2)
 
 
 net = get_model(opt.model, context, opt)
@@ -227,7 +236,7 @@ def get_dummy_data(data_iter, ctx):
 def get_optimizer(opt):
     params = {'learning_rate': opt.lr, 'wd': opt.wd, 'multi_precision': True}
     if opt.optimizer == "sgd":
-        params = {'learning_rate': opt.lr, 'wd': opt.wd, 'momentum': opt.momentum, 'multi_precision': True}
+        params['momentum'] = opt.momentum
     return opt.optimizer, params
 
 
@@ -333,7 +342,7 @@ def main():
                 epoch_end_callback = mx.callback.do_checkpoint('image-classifier-%s'% opt.model),
                 optimizer = optimizer,
                 optimizer_params = optimizer_params,
-                initializer = mx.init.Xavier(magnitude=2))
+                initializer = get_initializer())
         mod.save_parameters('image-classifier-%s-%d-final.params'%(opt.model, opt.epochs))
     else:
         if opt.mode == 'hybrid':
