@@ -229,7 +229,7 @@ def save_checkpoint(epoch, top1, best_acc):
 
 
 def get_dummy_data(data_iter, ctx):
-    shapes = (data_iter.provide_data[0].shape, data_iter.provide_label[0].shape)
+    shapes = ((1,) + data_iter.provide_data[0].shape[1:], (1,) + data_iter.provide_label[0].shape[1:])
     return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
 
 
@@ -330,10 +330,10 @@ def main():
         kv = mx.kv.create(opt.kvstore)
         train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
 
-        # # dummy forward pass with gluon to initialize binary layers
-        # with autograd.record():
-        #     data, label = get_dummy_data(train_data, context[0])
-        #     output = net(data)
+        # dummy forward pass with gluon to initialize binary layers
+        with autograd.record():
+            data, label = get_dummy_data(train_data, context[0])
+            output = net(data)
 
         data = mx.sym.var('data')
         out = net(data)
