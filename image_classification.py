@@ -146,9 +146,9 @@ def get_model(model, ctx, opt):
         net.load_parameters(opt.resume)
     elif not opt.use_pretrained:
         if model in ['alexnet']:
-            net.initialize(mx.init.Normal())
+            net.initialize(mx.init.Normal(), ctx=ctx)
         else:
-            net.initialize(get_initializer())
+            net.initialize(get_initializer(), ctx=ctx)
     net.cast(opt.dtype)
     return net
 
@@ -327,23 +327,30 @@ def main():
         profiler.set_config(profile_all=True, aggregate_stats=True)
         profiler.set_state('run')
     if opt.mode == 'symbolic':
+        kv = mx.kv.create(opt.kvstore)
+        train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
+
+        # # dummy forward pass with gluon to initialize binary layers
+        # with autograd.record():
+        #     data, label = get_dummy_data(train_data, context[0])
+        #     output = net(data)
+
         data = mx.sym.var('data')
         out = net(data)
         softmax = mx.sym.SoftmaxOutput(out, name='softmax')
         mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
-        kv = mx.kv.create(opt.kvstore)
-        train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
         optimizer, optimizer_params = get_optimizer(opt)
+        model_path = os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
         mod.fit(train_data,
                 eval_data = val_data,
                 num_epoch=opt.epochs,
                 kvstore=kv,
                 batch_end_callback = mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
-                epoch_end_callback = mx.callback.do_checkpoint('image-classifier-%s'% opt.model),
+                epoch_end_callback = mx.callback.do_checkpoint(model_path),
                 optimizer = optimizer,
                 optimizer_params = optimizer_params,
                 initializer = get_initializer())
-        mod.save_parameters('image-classifier-%s-%d-final.params'%(opt.model, opt.epochs))
+        mod.save_parameters('%s-%d-final.params' % (model_path, opt.epochs))
     else:
         if opt.mode == 'hybrid':
             net.hybridize()
