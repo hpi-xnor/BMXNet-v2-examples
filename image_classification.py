@@ -350,7 +350,7 @@ def main():
                 optimizer = optimizer,
                 optimizer_params = optimizer_params,
                 initializer = get_initializer())
-        mod.save_parameters('%s-%d-final.params' % (model_path, opt.epochs))
+        mod.save_params('%s-%d-final.params' % (model_path, opt.epochs))
     else:
         if opt.mode == 'hybrid':
             net.hybridize()
