@@ -26,9 +26,6 @@ logging.basicConfig(level=logging.INFO)
 
 import mxnet as mx
 from mxnet.test_utils import download
-from mxnet.gluon.data.vision import ImageFolderDataset
-from mxnet.gluon.data import DataLoader
-from mxnet.contrib.io import DataLoaderIter
 
 
 def get_cifar10(dir="data"):
@@ -51,26 +48,26 @@ def as_kwargs(**kwargs):
     return kwargs
 
 
-def get_augmented_train_val(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None,
-                            train_path=("cifar", "train.rec"), val_path=("cifar", "test.rec"),
-                            aug_level=1, mean_subtraction=False):
-    train_kwargs = as_kwargs(path_imgrec=os.path.join(dir, *train_path),
-                             resize=resize,
-                             data_shape=data_shape,
-                             batch_size=batch_size,
-                             rand_crop=False,
-                             rand_mirror=False,
-                             num_parts=num_parts,
-                             part_index=part_index)
+def get_augmented_train_val(batch_size, data_shape, resize=-1, num_parts=1, part_index=0, dir=None, aug_level=1,
+                            mean_subtraction=False, num_workers=4, dtype=None, train_path=("cifar", "train.rec"),
+                            val_path=("cifar", "test.rec")):
+    kwargs = as_kwargs(
+        resize=resize,
+        rand_crop=False,
+        rand_mirror=False,
+        data_shape=data_shape,
+        batch_size=batch_size,
+        num_parts=num_parts,
+        part_index=part_index,
+        preprocess_threads=num_workers,
+        dtype=dtype
+    )
+    train_kwargs = as_kwargs(path_imgrec=os.path.join(dir, *train_path))
+    train_kwargs.update(kwargs)
 
-    val_kwargs = as_kwargs(path_imgrec=os.path.join(dir, *val_path),
-                           resize=resize,
-                           rand_crop=False,
-                           rand_mirror=False,
-                           data_shape=data_shape,
-                           batch_size=batch_size,
-                           num_parts=num_parts,
-                           part_index=part_index)
+    val_kwargs = as_kwargs(path_imgrec=os.path.join(dir, *val_path))
+    val_kwargs.update(kwargs)
+
     if aug_level >= 1:
         train_kwargs.update(as_kwargs(rand_crop=True, rand_mirror=True))
     if aug_level >= 2:
@@ -95,40 +92,12 @@ def get_cifar10_iterator(batch_size, data_shape, resize=-1, num_parts=1, part_in
                                    dir=dir, aug_level=aug_level, mean_subtraction=mean_subtraction)
 
 
-def get_imagenet_transforms(data_shape=224, dtype='float32'):
-    def train_transform(image, label):
-        image, _ = mx.image.random_size_crop(image, (data_shape, data_shape), 0.08, (3 / 4., 4 / 3.))
-        image = mx.nd.image.random_flip_left_right(image)
-        image = mx.nd.image.to_tensor(image)
-        image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return mx.nd.cast(image, dtype), label
-
-    def val_transform(image, label):
-        image = mx.image.resize_short(image, data_shape + 32)
-        image, _ = mx.image.center_crop(image, (data_shape, data_shape))
-        image = mx.nd.image.to_tensor(image)
-        image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return mx.nd.cast(image, dtype), label
-
-    return train_transform, val_transform
-
-
-def get_imagenet_iterator(root, batch_size, num_workers, data_shape=224, dtype='float32'):
-    """Dataset loader with preprocessing."""
-    train_dir = os.path.join(root, 'train')
-    train_transform, val_transform = get_imagenet_transforms(data_shape, dtype)
-    logging.info("Loading image folder %s, this may take a bit long...", train_dir)
-    train_dataset = ImageFolderDataset(train_dir, transform=train_transform)
-    train_data = DataLoader(train_dataset, batch_size, shuffle=True,
-                            last_batch='discard', num_workers=num_workers)
-    val_dir = os.path.join(root, 'val')
-    if not os.path.isdir(os.path.expanduser(os.path.join(root, 'val', 'n01440764'))):
-        user_warning = 'Make sure validation images are stored in one subdir per category, a helper script is available at https://git.io/vNQv1'
-        raise ValueError(user_warning)
-    logging.info("Loading image folder %s, this may take a bit long...", val_dir)
-    val_dataset = ImageFolderDataset(val_dir, transform=val_transform)
-    val_data = DataLoader(val_dataset, batch_size, last_batch='keep', num_workers=num_workers)
-    return DataLoaderIter(train_data, dtype), DataLoaderIter(val_data, dtype)
+def get_imagenet_iterator(root, batch_size, num_workers, data_shape=224, dtype='float32',
+                         aug_level=1, mean_subtraction=False):
+    return get_augmented_train_val(batch_size, (3, data_shape, data_shape), resize=-1, num_parts=1, part_index=0,
+                                   dir=root, aug_level=aug_level, mean_subtraction=mean_subtraction,
+                                   num_workers=num_workers, dtype=dtype, train_path=("imagenet1k-train.rec",),
+                                   val_path=("imagenet1k-val.rec",))
 
 
 class DummyIter(mx.io.DataIter):

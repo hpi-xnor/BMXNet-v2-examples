@@ -51,7 +51,7 @@ parser.add_argument('--bits', type=int, default=32,
                     help='number of weight bits')
 parser.add_argument('--bits-a', type=int, default=32,
                     help='number of bits for activation')
-parser.add_argument('--dataset', type=str, default='cifar10',
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['mnist', 'cifar10', 'imagenet', 'dummy'],
                     help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
 parser.add_argument('--data-dir', type=str, default='',
                     help='training directory of imagenet images, contains train/val subdirs.')
