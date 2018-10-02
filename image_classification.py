@@ -358,8 +358,10 @@ def main():
         mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
         optimizer, optimizer_params = get_optimizer(opt)
         model_path = os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
+        eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
         mod.fit(train_data,
                 eval_data = val_data,
+                eval_metric = eval_metric,
                 num_epoch=opt.epochs,
                 kvstore=kv,
                 batch_end_callback = mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
