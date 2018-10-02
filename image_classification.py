@@ -254,6 +254,23 @@ def train(opt, ctx):
         data, label = get_dummy_data(train_data, ctx[0])
         output = net(data)
 
+    params = net.collect_params()
+    for key in params:
+        wd_mult = None
+        if 'batchnorm' in key:
+            # batch norm params
+            wd_mult = 1e-5
+        elif 'stage' in key and 'weight' in key:
+            # binary weight
+            wd_mult = 1e-7
+        elif 'dense' in key:
+            # final FC layer
+            wd_mult = 1.0
+        else:
+            # first conv layer
+            wd_mult = 1.0
+        params[key].wd_mult = wd_mult
+
     if opt.plot_network is not None:
         x = mx.sym.var('data')
         sym = net(x)
