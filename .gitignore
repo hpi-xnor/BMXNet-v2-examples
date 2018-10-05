@@ -114,3 +114,6 @@ model
 *.zip
 *.rec
 *.lst
+
+# tensorboard
+*.out.tfevents.*
