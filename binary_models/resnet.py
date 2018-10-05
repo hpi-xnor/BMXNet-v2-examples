@@ -36,8 +36,8 @@ from mxnet import base
 
 
 # Helpers
-def _conv3x3(bits, channels, stride, in_channels, bits_a=0):
-    return nn.QConv2D(channels, bits=bits, activation=bits_a, kernel_size=3,
+def _conv3x3(bits, channels, stride, in_channels):
+    return nn.QConv2D(channels, bits=bits, kernel_size=3,
                       strides=stride, padding=1, in_channels=in_channels)
 
 
@@ -71,7 +71,8 @@ class BasicBlockV1(HybridBlock):
         self.body.add(_conv3x3(bits, channels, 1, channels))
 
         if downsample:
-            self.downsample = nn.QConv2D(channels, kernel_size=1, strides=stride, in_channels=in_channels, prefix="sc_")
+            self.downsample = nn.QConv2D(channels, kernel_size=1, strides=stride, in_channels=in_channels,
+                                         prefix="sc_qconv_")
         else:
             self.downsample = None
 
