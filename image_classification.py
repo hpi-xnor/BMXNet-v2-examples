@@ -111,6 +111,8 @@ parser.add_argument('--mean-subtraction', action="store_true",
                     help='whether to subtract ImageNet mean from data')
 parser.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
                     help='weight initialization, default is xavier with magnitude 2.')
+parser.add_argument('--write-summary', type=str, default=None,
+                    help='write tensorboard summaries to this path')
 parser.add_argument('--profile', action='store_true',
                     help='Option to turn on memory profiling for front-end, '\
                          'and prints out the memory usage by python function at the end.')
@@ -254,22 +256,15 @@ def train(opt, ctx):
         data, label = get_dummy_data(train_data, ctx[0])
         output = net(data)
 
-    params = net.collect_params()
+    summary_writer = None
+    if opt.write_summary:
+        from mxboard import SummaryWriter
+        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
+
+    # set batch norm wd to zero
+    params = net.collect_params('.*batchnorm.*')
     for key in params:
-        wd_mult = None
-        if 'batchnorm' in key:
-            # batch norm params
-            wd_mult = 1e-5
-        elif 'stage' in key and 'weight' in key:
-            # binary weight
-            wd_mult = 1e-7
-        elif 'dense' in key:
-            # final FC layer
-            wd_mult = 1.0
-        else:
-            # first conv layer
-            wd_mult = 1.0
-        params[key].wd_mult = wd_mult
+        params[key].wd_mult = 0.0
 
     if opt.plot_network is not None:
         x = mx.sym.var('data')
@@ -279,6 +274,18 @@ def train(opt, ctx):
                 mx.viz.print_summary(sym, shape={"data": get_shape(dataset)})
         a = mx.viz.plot_network(sym, shape={"data": get_shape(dataset)})
         a.render('{}.gv'.format(opt.plot_network), view=True)
+
+    global_step = 0
+    if summary_writer:
+        params = net.collect_params(".*weight|.*bias")
+        for name, param in params.items():
+            summary_writer.add_histogram(tag=name, values=param.data(),
+                                         global_step=global_step, bins=1000)
+            summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(),
+                                         global_step=global_step, bins=1000)
+            # if "qconv" in name:
+            #     to_log = (param.data().det_sign().reshape(-1, 1, 0, 0) + 1) / 2
+            #     summary_writer.add_image(name, to_log[:10], global_step=global_step)
 
     total_time = 0
     num_epochs = 0
@@ -305,25 +312,51 @@ def train(opt, ctx):
                 autograd.backward(Ls)
             trainer.step(batch.data[0].shape[0])
             metric.update(label, outputs)
-            if opt.log_interval and not (i+1)%opt.log_interval:
+            if opt.log_interval and not (i+1) % opt.log_interval:
                 name, acc = metric.get()
                 logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f, %s=%f'%(
-                               epoch, i, batch_size/(time.time()-btic), name[0], acc[0], name[1], acc[1]))
+                    epoch, i, batch_size/(time.time()-btic), name[0], acc[0], name[1], acc[1]))
+                if summary_writer:
+                    summary_writer.add_scalar("batch-%s" % name[0], acc[0], global_step=global_step)
+                    summary_writer.add_scalar("batch-%s" % name[1], acc[1], global_step=global_step)
             btic = time.time()
+            global_step += 1
 
         epoch_time = time.time()-tic
+
+        if summary_writer:
+            params = net.collect_params(".*weight|.*bias")
+            for name, param in params.items():
+                summary_writer.add_histogram(tag=name, values=param.data(),
+                                             global_step=global_step, bins=1000)
+                summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(),
+                                             global_step=global_step, bins=1000)
+                # if "qconv" in name:
+                #     to_log = (param.data().det_sign().reshape(-1, 1, 0, 0) + 1) / 2
+                #     summary_writer.add_image(name, to_log[:10], global_step=global_step)
 
         # First epoch will usually be much slower than the subsequent epics,
         # so don't factor into the average
         if num_epochs > 0:
-          total_time = total_time + epoch_time
+            total_time = total_time + epoch_time
         num_epochs = num_epochs + 1
 
+        # train
         name, acc = metric.get()
         logger.info('[Epoch %d] training: %s=%f, %s=%f'%(epoch, name[0], acc[0], name[1], acc[1]))
         logger.info('[Epoch %d] time cost: %f'%(epoch, epoch_time))
+        if summary_writer:
+            summary_writer.add_scalar("epoch", epoch, global_step=global_step)
+            summary_writer.add_scalar("epoch-time", epoch_time, global_step=global_step)
+            summary_writer.add_scalar("training-%s" % name[0], acc[0], global_step=global_step)
+            summary_writer.add_scalar("training-%s" % name[1], acc[1], global_step=global_step)
+
+        # test
         name, val_acc = test(ctx, val_data)
         logger.info('[Epoch %d] validation: %s=%f, %s=%f'%(epoch, name[0], val_acc[0], name[1], val_acc[1]))
+        if summary_writer:
+            summary_writer.add_scalar("validation-%s" % name[0], val_acc[0], global_step=global_step)
+            summary_writer.add_scalar("validation-%s" % name[1], val_acc[1], global_step=global_step)
 
         # save model if meet requirements
         save_checkpoint(epoch, val_acc[0], best_acc)
