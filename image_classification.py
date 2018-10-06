@@ -33,18 +33,6 @@ import numpy as np
 
 from data import *
 
-# logging
-logging.basicConfig(level=logging.INFO)
-fh = logging.FileHandler('image-classification.log')
-logger = logging.getLogger()
-logger.addHandler(fh)
-formatter = logging.Formatter('%(message)s')
-fh.setFormatter(formatter)
-fh.setLevel(logging.DEBUG)
-logging.debug('\n%s', '-' * 100)
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-fh.setFormatter(formatter)
-
 # CLI
 parser = argparse.ArgumentParser(description='Train a model for image classification.')
 parser.add_argument('--bits', type=int, default=32,
@@ -99,6 +87,8 @@ parser.add_argument('--save-frequency', default=10, type=int,
                     help='epoch frequence to save model, best model will always be saved')
 parser.add_argument('--kvstore', type=str, default='device',
                     help='kvstore to use for trainer/module.')
+parser.add_argument('--log', type=str, default='image-classification.log',
+                    help='Filename and path where log file should be stored.')
 parser.add_argument('--log-interval', type=int, default=50,
                     help='Number of batches to wait before logging.')
 parser.add_argument('--plot-network', type=str, default=None,
@@ -116,6 +106,18 @@ parser.add_argument('--profile', action='store_true',
                          'and prints out the memory usage by python function at the end.')
 parser.add_argument('--builtin-profiler', type=int, default=0, help='Enable built-in profiler (0=off, 1=on)')
 opt = parser.parse_args()
+
+# logging
+logging.basicConfig(level=logging.INFO)
+fh = logging.FileHandler(opt.log)
+logger = logging.getLogger()
+logger.addHandler(fh)
+formatter = logging.Formatter('%(message)s')
+fh.setFormatter(formatter)
+fh.setLevel(logging.DEBUG)
+logging.debug('\n%s', '-' * 100)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+fh.setFormatter(formatter)
 
 # global variables
 logger.info('Starting new image-classification task:, %s',opt)
