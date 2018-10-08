@@ -279,13 +279,10 @@ def train(opt, ctx):
     if summary_writer:
         params = net.collect_params(".*weight|.*bias")
         for name, param in params.items():
-            summary_writer.add_histogram(tag=name, values=param.data(),
+            summary_writer.add_histogram(tag=name, values=param.data(ctx[0]),
                                          global_step=global_step, bins=1000)
-            summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(),
+            summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(ctx[0]),
                                          global_step=global_step, bins=1000)
-            # if "qconv" in name:
-            #     to_log = (param.data().det_sign().reshape(-1, 1, 0, 0) + 1) / 2
-            #     summary_writer.add_image(name, to_log[:10], global_step=global_step)
 
     total_time = 0
     num_epochs = 0
@@ -327,13 +324,10 @@ def train(opt, ctx):
         if summary_writer:
             params = net.collect_params(".*weight|.*bias")
             for name, param in params.items():
-                summary_writer.add_histogram(tag=name, values=param.data(),
+                summary_writer.add_histogram(tag=name, values=param.data(ctx[0]),
                                              global_step=global_step, bins=1000)
-                summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(),
+                summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(ctx[0]),
                                              global_step=global_step, bins=1000)
-                # if "qconv" in name:
-                #     to_log = (param.data().det_sign().reshape(-1, 1, 0, 0) + 1) / 2
-                #     summary_writer.add_image(name, to_log[:10], global_step=global_step)
 
         # First epoch will usually be much slower than the subsequent epics,
         # so don't factor into the average
