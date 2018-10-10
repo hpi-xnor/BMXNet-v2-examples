@@ -32,8 +32,7 @@ from datasets.data import *
 
 
 # CLI
-def get_parser(evaluation=False):
-    training = not evaluation
+def get_parser(training=True):
     parser = argparse.ArgumentParser(description='Train a model for image classification.')
     if training:
         parser.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
@@ -48,8 +47,6 @@ def get_parser(evaluation=False):
                             help='clipping threshold, default is 1.0.')
         parser.add_argument('--epochs', type=int, default=120,
                             help='number of training epochs.')
-        parser.add_argument('--gpus', type=str, default='',
-                            help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
         parser.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
                             help='weight initialization, default is xavier with magnitude 2.')
         parser.add_argument('--kvstore', type=str, default='device',
@@ -64,8 +61,6 @@ def get_parser(evaluation=False):
                             help='learning rate decay ratio')
         parser.add_argument('--lr-steps', default='30,60,90', type=str,
                             help='list of learning rate decay epochs as in str')
-        parser.add_argument('--mode', type=str,
-                            help='mode in which to train the model. options are symbolic, imperative, hybrid')
         parser.add_argument('--momentum', type=float, default=0.9,
                             help='momentum value for optimizer, default is 0.9.')
         parser.add_argument('--optimizer', type=str, default="sgd",
@@ -89,10 +84,6 @@ def get_parser(evaluation=False):
                             help='weight decay rate. default is 0.0001.')
         parser.add_argument('--write-summary', type=str, default=None,
                             help='write tensorboard summaries to this path')
-    if evaluation:
-        parser.add_argument('--gpu', type=str, default='',
-                            help='ordinate of gpu to use, empty for cpu only.')
-        parser.add_argument('--augmentation-level', type=int, default=0, help='dummy value')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
     parser.add_argument('--builtin-profiler', type=int, default=0,
@@ -105,8 +96,12 @@ def get_parser(evaluation=False):
                         help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
     parser.add_argument('--dtype', default='float32', type=str,
                         help='data type, float32 or float16 if applicable')
+    parser.add_argument('--gpus', type=str, default='',
+                        help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
     parser.add_argument('--mean-subtraction', action="store_true",
                         help='whether to subtract ImageNet mean from data')
+    parser.add_argument('--mode', type=str,
+                        help='mode in which to train the model. options are symbolic, imperative, hybrid')
     parser.add_argument('--model', type=str, required=True,
                         help='type of model to use. see vision_model for options.')
     parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,

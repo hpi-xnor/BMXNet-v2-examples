@@ -31,6 +31,17 @@ from datasets.data import *
 from image_classification import get_parser, get_data_iters
 
 
+parser = get_parser(False)
+parser.add_argument('--augmentation-level', type=int, default=0, help='dummy value')
+parser.add_argument('--symbol', type=str, required=True,
+                    help='the symbol.json of the model which should be used')
+parser.add_argument('--params', type=str, required=True,
+                    help='the .params with the model weights')
+parser.add_argument('--verbose', action="store_true",
+                    help='prints information about the model before evaluating')
+opt = parser.parse_args()
+
+
 def convert_size(size_bytes):
     if size_bytes == 0:
         return "0B"
@@ -41,75 +52,80 @@ def convert_size(size_bytes):
     return "%s %s" % (s, size_name[i])
 
 
-parser = get_parser(evaluation=True)
-opt = parser.parse_args()
+def prepare_net(opt, net):
+    fp_weights = 0
+    binary_weights = 0
 
-json_file = 'model/deploy.json'
-param_file = 'model/image-classifier-resnet18_v1-40-final.params'
-ctx = mx.gpu(int(opt.gpu)) if opt.gpu.strip() else mx.cpu()
+    binary_params = []
+    full_precision_params = []
 
-net = gluon.nn.SymbolBlock.imports(json_file, ['data'], param_file=param_file, ctx=ctx)
+    for param_name in net.params.keys():
+        param = net.params[param_name]
+        param_data = param.data()
+        num_params = reduce(mul, param_data.shape, 1)
+        if "qconv" in param_name:
+            signed = param_data.det_sign()
+            param.set_data(signed)
+            binary_weights += num_params
+            binary_params.append(param_name)
+        else:
+            fp_weights += num_params
+            full_precision_params.append(param_name)
+    bits_required = binary_weights + fp_weights * 32
+    bytes_required = bits_required / 8
+    if opt.verbose:
+        print("full-precision weights: {}".format(fp_weights))
+        print("binary weights: {} ({:.2f}% of weights are binary)".format(
+            binary_weights, 100 * binary_weights / (fp_weights + binary_weights))
+        )
+        print("compressed model size : ~{} ({:.2f}% binary)".format(
+            convert_size(bytes_required), 100 * binary_weights / bits_required)
+        )
+        print("binary params: {}".format(" ".join(binary_params)))
+        print("full precision params: {}".format(" ".join(full_precision_params)))
 
-fp_weights = 0
-binary_weights = 0
 
-for param_name in net.params.keys():
-    param = net.params[param_name]
-    param_data = param.data()
-    num_params = reduce(mul, param_data.shape, 1)
-    if "stage" in param_name and "weight" in param_name:
-        # print("binary")
-        signed = param_data.det_sign()
-        param.set_data(signed)
-        binary_weights += num_params
-    else:
-        # print("full-precision")
-        fp_weights += num_params
-    # print(param_name)
-    # print(param_data)
-    # print("=" * 50)
-bits_required = binary_weights + fp_weights * 32
-bytes_required = bits_required / 8
-print("full-precision weights: {}".format(fp_weights))
-print("binary weights: {} ({:.2f}% of weights are binary)".format(
-    binary_weights, 100 * binary_weights / (fp_weights + binary_weights))
-)
-print("compressed model size : ~{} ({:.2f}% binary)".format(
-    convert_size(bytes_required), 100 * binary_weights / bits_required)
-)
+if __name__ == '__main__':
+    context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
+    ctx = context[0]
 
-# from PIL import ImageFont
-# font = ImageFont.truetype("/usr/share/fonts/truetype/hack/Hack-Regular.ttf", size=20)
+    if opt.mode == "symbolic":
+        # TODO: remove Softmax from json
+        pass
 
-num_correct = 0
-num_wrong = 0
+    net = gluon.nn.SymbolBlock.imports(opt.symbol, ['data'], param_file=opt.params, ctx=ctx)
 
-_, val_data = get_data_iters(opt)
+    prepare_net(opt, net)
 
-for i, batch in enumerate(tqdm.tqdm(val_data)):
-    if opt.gpu.strip():
+    # from PIL import ImageFont
+    # font = ImageFont.truetype("/usr/share/fonts/truetype/hack/Hack-Regular.ttf", size=20)
+
+    num_correct = 0
+    num_wrong = 0
+
+    _, val_data = get_data_iters(opt)
+
+    for i, batch in enumerate(tqdm.tqdm(val_data)):
         data = mx.nd.array(batch.data[0], ctx=ctx)
-    else:
-        data = mx.nd.array(batch.data[0], ctx=ctx)
-    result = net(data)
-    probabilities = result.softmax().asnumpy()
-    ground_truth = batch.label[0].asnumpy()
+        result = net(data)
+        probabilities = result.softmax().asnumpy()
+        ground_truth = batch.label[0].asnumpy()
 
-    predictions = np.argmax(probabilities, axis=1)
-    likeliness = np.max(probabilities, axis=1)
+        predictions = np.argmax(probabilities, axis=1)
+        likeliness = np.max(probabilities, axis=1)
 
-    num_correct += np.sum(predictions == ground_truth)
-    num_wrong += np.sum(predictions != ground_truth)
+        num_correct += np.sum(predictions == ground_truth)
+        num_wrong += np.sum(predictions != ground_truth)
 
-    # from datasets.imagenet_classes import CLASSES
-    # for i in range(opt.batch_size):
-    #     transformed = image.asnumpy().astype(np.uint8).transpose(1, 2, 0)
-    #     image = Image.fromarray(transformed, "RGB")
-    #     draw = ImageDraw.ImageDraw(image)
-    #     draw.text((0, 200), CLASSES[prediction] + " ({:.0f}%)".format(likeliness * 100), font=font,
-    #               fill="green" if correct else "red")
-    #
-    #     image.show()
-    #     print(CLASSES[np.argmax(probabilities)], np.max(probabilities))
+        # from datasets.imagenet_classes import CLASSES
+        # for i in range(opt.batch_size):
+        #     transformed = image.asnumpy().astype(np.uint8).transpose(1, 2, 0)
+        #     image = Image.fromarray(transformed, "RGB")
+        #     draw = ImageDraw.ImageDraw(image)
+        #     draw.text((0, 200), CLASSES[prediction] + " ({:.0f}%)".format(likeliness * 100), font=font,
+        #               fill="green" if correct else "red")
+        #
+        #     image.show()
+        #     print(CLASSES[np.argmax(probabilities)], np.max(probabilities))
 
-print("Accuracy: {:.2f}%".format(100 * num_correct / (num_correct + num_wrong)))
+    print("Accuracy: {:.2f}%".format(100 * num_correct / (num_correct + num_wrong)))
