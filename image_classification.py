@@ -17,13 +17,10 @@
 
 from __future__ import division
 
-import argparse, time, os
-import logging
+import argparse, time
 
-import mxnet as mx
 from mxnet import gluon
 from mxnet import profiler
-from mxnet.gluon.model_zoo import vision as models
 import binary_models
 from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
@@ -31,7 +28,7 @@ from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
 from contextlib import redirect_stdout
 import numpy as np
 
-from data import *
+from datasets.data import *
 
 
 # CLI
@@ -69,8 +66,6 @@ def get_parser(evaluation=False):
                             help='list of learning rate decay epochs as in str')
         parser.add_argument('--mode', type=str,
                             help='mode in which to train the model. options are symbolic, imperative, hybrid')
-        parser.add_argument('--model', type=str, required=True,
-                            help='type of model to use. see vision_model for options.')
         parser.add_argument('--momentum', type=float, default=0.9,
                             help='momentum value for optimizer, default is 0.9.')
         parser.add_argument('--optimizer', type=str, default="sgd",
@@ -112,6 +107,8 @@ def get_parser(evaluation=False):
                         help='data type, float32 or float16 if applicable')
     parser.add_argument('--mean-subtraction', action="store_true",
                         help='whether to subtract ImageNet mean from data')
+    parser.add_argument('--model', type=str, required=True,
+                        help='type of model to use. see vision_model for options.')
     parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
                         help='number of workers of dataloader.')
     parser.add_argument('--prefix', default='', type=str,
@@ -158,27 +155,27 @@ def get_initializer():
         return mx.init.Xavier(rnd_type="gaussian", factor_type="in", magnitude=2)
 
 
-def get_data_iters(opt, dataset, batch_size, num_workers=1, rank=0):
+def get_data_iters(opt, num_workers=1, rank=0):
     """get dataset iterators"""
-    if dataset == 'mnist':
-        train_data, val_data = get_mnist_iterator(batch_size, (1, 28, 28),
+    if opt.dataset == 'mnist':
+        train_data, val_data = get_mnist_iterator(opt.batch_size, (1, 28, 28),
                                                   num_parts=num_workers, part_index=rank)
-    elif dataset == 'cifar10':
-        train_data, val_data = get_cifar10_iterator(batch_size, (3, 32, 32), num_parts=num_workers, part_index=rank,
+    elif opt.dataset == 'cifar10':
+        train_data, val_data = get_cifar10_iterator(opt.batch_size, (3, 32, 32), num_parts=num_workers, part_index=rank,
                                                     dir=opt.data_path, aug_level=opt.augmentation_level,
                                                     mean_subtraction=opt.mean_subtraction)
-    elif dataset == 'imagenet':
+    elif opt.dataset == 'imagenet':
         if not opt.data_dir:
             raise ValueError('Dir containing rec files is required for imagenet, please specify "--data-dir"')
-        if model_name == 'inceptionv3':
-            train_data, val_data = get_imagenet_iterator(opt.data_dir, batch_size, opt.num_workers, 299, opt.dtype)
+        if opt.model == 'inceptionv3':
+            train_data, val_data = get_imagenet_iterator(opt.data_dir, opt.batch_size, opt.num_workers, 299, opt.dtype)
         else:
-            train_data, val_data = get_imagenet_iterator(opt.data_dir, batch_size, opt.num_workers, 224, opt.dtype)
+            train_data, val_data = get_imagenet_iterator(opt.data_dir, opt.batch_size, opt.num_workers, 224, opt.dtype)
     elif dataset == 'dummy':
-        if model_name == 'inceptionv3':
-            train_data, val_data = dummy_iterator(batch_size, (3, 299, 299))
+        if opt.model == 'inceptionv3':
+            train_data, val_data = dummy_iterator(opt.batch_size, (3, 299, 299))
         else:
-            train_data, val_data = dummy_iterator(batch_size, (3, 224, 224))
+            train_data, val_data = dummy_iterator(opt.batch_size, (3, 224, 224))
     return train_data, val_data
 
 
@@ -230,7 +227,7 @@ def train(opt, ctx):
     if isinstance(ctx, mx.Context):
         ctx = [ctx]
     kv = mx.kv.create(opt.kvstore)
-    train_data, val_data = get_data_iters(opt, dataset, batch_size, kv.num_workers, kv.rank)
+    train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
     net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
@@ -356,7 +353,7 @@ def main():
         profiler.set_state('run')
     if opt.mode == 'symbolic':
         kv = mx.kv.create(opt.kvstore)
-        train_data, val_data = get_data_iters(opt, dataset, batch_size, kv.num_workers, kv.rank)
+        train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
 
         # dummy forward pass with gluon to initialize binary layers
         with autograd.record():

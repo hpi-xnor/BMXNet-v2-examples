@@ -20,15 +20,13 @@ from __future__ import division
 from functools import reduce
 from operator import mul
 
-import argparse, os, math
+import math
 import numpy as np
 
 import tqdm as tqdm
 from mxnet import gluon
 
-from data import *
-
-from PIL import Image, ImageDraw, ImageFont
+from datasets.data import *
 
 from image_classification import get_parser, get_data_iters
 
@@ -46,11 +44,9 @@ def convert_size(size_bytes):
 parser = get_parser(evaluation=True)
 opt = parser.parse_args()
 
-batch_size = opt.batch_size
 json_file = 'model/deploy.json'
 param_file = 'model/image-classifier-resnet18_v1-40-final.params'
 ctx = mx.gpu(int(opt.gpu)) if opt.gpu.strip() else mx.cpu()
-data_dir = "/mnt/Data/Data/Systematic Evaluation/data/imagenet1k/"
 
 net = gluon.nn.SymbolBlock.imports(json_file, ['data'], param_file=param_file, ctx=ctx)
 
@@ -82,12 +78,13 @@ print("compressed model size : ~{} ({:.2f}% binary)".format(
     convert_size(bytes_required), 100 * binary_weights / bits_required)
 )
 
-font = ImageFont.truetype("/usr/share/fonts/truetype/hack/Hack-Regular.ttf", size=20)
+# from PIL import ImageFont
+# font = ImageFont.truetype("/usr/share/fonts/truetype/hack/Hack-Regular.ttf", size=20)
 
 num_correct = 0
 num_wrong = 0
 
-_, val_data = get_data_iters(opt, opt.dataset, batch_size)
+_, val_data = get_data_iters(opt)
 
 for i, batch in enumerate(tqdm.tqdm(val_data)):
     if opt.gpu.strip():
@@ -104,8 +101,8 @@ for i, batch in enumerate(tqdm.tqdm(val_data)):
     num_correct += np.sum(predictions == ground_truth)
     num_wrong += np.sum(predictions != ground_truth)
 
-    # from imagenet_classes import CLASSES
-    # for i in range(batch_size):
+    # from datasets.imagenet_classes import CLASSES
+    # for i in range(opt.batch_size):
     #     transformed = image.asnumpy().astype(np.uint8).transpose(1, 2, 0)
     #     image = Image.fromarray(transformed, "RGB")
     #     draw = ImageDraw.ImageDraw(image)
