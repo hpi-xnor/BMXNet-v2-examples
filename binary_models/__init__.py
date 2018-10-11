@@ -153,8 +153,9 @@ def get_model(name, **kwargs):
               'mobilenetv2_0.25': mobilenet_v2_0_25
              }
     name = name.lower()
+    name, *modifier = name.split('-')
     if name not in models:
         raise ValueError(
             'Model %s is not supported. Available options are\n\t%s' % (
                 name, '\n\t'.join(sorted(models.keys()))))
-    return models[name](**kwargs)
+    return models[name](modifier=modifier, **kwargs)
