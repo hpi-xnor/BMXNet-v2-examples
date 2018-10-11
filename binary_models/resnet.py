@@ -87,8 +87,8 @@ class BasicBlockV1(HybridBlock):
         self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
 
         if self.should_downsample:
-            self.downsample = nn.QConv2D(sef.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
-                                         prefix="sc_qconv_")
+            self.downsample = nn.QConv2D(self.channels, kernel_size=1, strides=self.stride,
+                                         in_channels=self.in_channels, prefix="sc_qconv_")
 
     def _init_scaled(self):
         self.pre_shortcut.add(nn.BatchNorm())
@@ -125,14 +125,14 @@ class ScaledBinaryConv(HybridBlock):
         super(ScaledBinaryConv, self).__init__(**kwargs)
         self.qact = nn.QActivation(bits=bits_a, gradient_cancel_threshold=clip_threshold)
         self.qconv = nn.QConv2D(channels, bits=bits, kernel_size=kernel_size, strides=stride, padding=padding,
-                                in_channels=in_channels, prefix=prefix, no_offset=True)
+                                in_channels=in_channels, prefix=prefix, no_offset=True, apply_scaling=True)
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
         self.in_channels = in_channels
 
     def hybrid_forward(self, F, x):
-        A = x.mean(axis=1, keepdims=True)
+        A = x.abs().mean(axis=1, keepdims=True)
         k = F.ones((1, 1, self.kernel_size, self.kernel_size)) / self.kernel_size ** 2
         K = F.Convolution(A, k, bias=None, name='scaling_conv', num_filter=1,
                           kernel=(self.kernel_size, self.kernel_size), no_bias=True, stride=(self.stride, self.stride),
