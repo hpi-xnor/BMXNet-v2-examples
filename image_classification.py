@@ -17,13 +17,10 @@
 
 from __future__ import division
 
-import argparse, time, os
-import logging
+import argparse, time
 
-import mxnet as mx
 from mxnet import gluon
 from mxnet import profiler
-from mxnet.gluon.model_zoo import vision as models
 import binary_models
 from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
@@ -31,130 +28,114 @@ from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
 from contextlib import redirect_stdout
 import numpy as np
 
-from data import *
+from datasets.data import *
+
 
 # CLI
-parser = argparse.ArgumentParser(description='Train a model for image classification.')
-parser.add_argument('--bits', type=int, default=32,
-                    help='number of weight bits')
-parser.add_argument('--bits-a', type=int, default=32,
-                    help='number of bits for activation')
-parser.add_argument('--dataset', type=str, default='cifar10', choices=['mnist', 'cifar10', 'imagenet', 'dummy'],
-                    help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
-parser.add_argument('--data-dir', type=str, default='',
-                    help='training directory of imagenet images, contains train/val subdirs.')
-parser.add_argument('--data-path', type=str, default='.',
-                    help='training directory where cifar10 / mnist data should be or is saved.')
-parser.add_argument('--batch-size', type=int, default=32,
-                    help='training batch size per device (CPU/GPU).')
-parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
-                    help='number of workers of dataloader.')
-parser.add_argument('--gpus', type=str, default='',
-                    help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
-parser.add_argument('--epochs', type=int, default=120,
-                    help='number of training epochs.')
-parser.add_argument('--optimizer', type=str, default="sgd",
-                    help='the optimizer to use. default is sgd.')
-parser.add_argument('--lr', type=float, default=0.1,
-                    help='learning rate. default is 0.1.')
-parser.add_argument('--momentum', type=float, default=0.9,
-                    help='momentum value for optimizer, default is 0.9.')
-parser.add_argument('--wd', type=float, default=0.0001,
-                    help='weight decay rate. default is 0.0001.')
-parser.add_argument('--seed', type=int, default=123,
-                    help='random seed to use. Default=123.')
-parser.add_argument('--mode', type=str,
-                    help='mode in which to train the model. options are symbolic, imperative, hybrid')
-parser.add_argument('--model', type=str, required=True,
-                    help='type of model to use. see vision_model for options.')
-parser.add_argument('--batch-norm', action='store_true',
-                    help='enable batch normalization or not in vgg. default is false.')
-parser.add_argument('--use-pretrained', action='store_true',
-                    help='enable using pretrained model from gluon.')
-parser.add_argument('--prefix', default='', type=str,
-                    help='path to checkpoint prefix, default is current working dir')
-parser.add_argument('--start-epoch', default=0, type=int,
-                    help='starting epoch, 0 for fresh training, > 0 to resume')
-parser.add_argument('--resume', type=str, default='',
-                    help='path to saved weight where you want resume')
-parser.add_argument('--lr-factor', default=0.1, type=float,
-                    help='learning rate decay ratio')
-parser.add_argument('--lr-steps', default='30,60,90', type=str,
-                    help='list of learning rate decay epochs as in str')
-parser.add_argument('--dtype', default='float32', type=str,
-                    help='data type, float32 or float16 if applicable')
-parser.add_argument('--save-frequency', default=10, type=int,
-                    help='epoch frequence to save model, best model will always be saved')
-parser.add_argument('--kvstore', type=str, default='device',
-                    help='kvstore to use for trainer/module.')
-parser.add_argument('--log', type=str, default='image-classification.log',
-                    help='Filename and path where log file should be stored.')
-parser.add_argument('--log-interval', type=int, default=50,
-                    help='Number of batches to wait before logging.')
-parser.add_argument('--plot-network', type=str, default=None,
-                    help='Whether to output the network plot.')
-parser.add_argument('--clip-threshold', type=float, default=1.0,
-                    help='clipping threshold, default is 1.0.')
-parser.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
-                    help='augmentation level, default is 1, possible values are: 1, 2, 3.')
-parser.add_argument('--mean-subtraction', action="store_true",
-                    help='whether to subtract ImageNet mean from data')
-parser.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
-                    help='weight initialization, default is xavier with magnitude 2.')
-parser.add_argument('--write-summary', type=str, default=None,
-                    help='write tensorboard summaries to this path')
-parser.add_argument('--profile', action='store_true',
-                    help='Option to turn on memory profiling for front-end, '\
-                         'and prints out the memory usage by python function at the end.')
-parser.add_argument('--builtin-profiler', type=int, default=0, help='Enable built-in profiler (0=off, 1=on)')
-opt = parser.parse_args()
-
-# logging
-logging.basicConfig(level=logging.INFO)
-fh = logging.FileHandler(opt.log)
-logger = logging.getLogger()
-logger.addHandler(fh)
-formatter = logging.Formatter('%(message)s')
-fh.setFormatter(formatter)
-fh.setLevel(logging.DEBUG)
-logging.debug('\n%s', '-' * 100)
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-fh.setFormatter(formatter)
-
-# global variables
-logger.info('Starting new image-classification task:, %s',opt)
-mx.random.seed(opt.seed)
-model_name = opt.model
-dataset_classes = {'mnist': 10, 'cifar10': 10, 'imagenet': 1000, 'dummy': 1000}
-batch_size, dataset, classes = opt.batch_size, opt.dataset, dataset_classes[opt.dataset]
-context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
-num_gpus = len(context)
-batch_size *= max(1, num_gpus)
-lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
-metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
+def get_parser(training=True):
+    parser = argparse.ArgumentParser(description='Train a model for image classification.')
+    if training:
+        parser.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
+                            help='augmentation level, default is 1, possible values are: 1, 2, 3.')
+        parser.add_argument('--batch-norm', action='store_true',
+                            help='enable batch normalization or not in vgg. default is false.')
+        parser.add_argument('--clip-threshold', type=float, default=1.0,
+                            help='clipping threshold, default is 1.0.')
+        parser.add_argument('--epochs', type=int, default=120,
+                            help='number of training epochs.')
+        parser.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
+                            help='weight initialization, default is xavier with magnitude 2.')
+        parser.add_argument('--kvstore', type=str, default='device',
+                            help='kvstore to use for trainer/module.')
+        parser.add_argument('--log', type=str, default='image-classification.log',
+                            help='Filename and path where log file should be stored.')
+        parser.add_argument('--log-interval', type=int, default=50,
+                            help='Number of batches to wait before logging.')
+        parser.add_argument('--lr', type=float, default=0.1,
+                            help='learning rate. default is 0.1.')
+        parser.add_argument('--lr-factor', default=0.1, type=float,
+                            help='learning rate decay ratio')
+        parser.add_argument('--lr-steps', default='30,60,90', type=str,
+                            help='list of learning rate decay epochs as in str')
+        parser.add_argument('--momentum', type=float, default=0.9,
+                            help='momentum value for optimizer, default is 0.9.')
+        parser.add_argument('--optimizer', type=str, default="sgd",
+                            help='the optimizer to use. default is sgd.')
+        parser.add_argument('--plot-network', type=str, default=None,
+                            help='Whether to output the network plot.')
+        parser.add_argument('--profile', action='store_true',
+                            help='Option to turn on memory profiling for front-end, and prints out '
+                                 'the memory usage by python function at the end.')
+        parser.add_argument('--resume', type=str, default='',
+                            help='path to saved weight where you want resume')
+        parser.add_argument('--save-frequency', default=10, type=int,
+                            help='epoch frequence to save model, best model will always be saved')
+        parser.add_argument('--seed', type=int, default=123,
+                            help='random seed to use. Default=123.')
+        parser.add_argument('--start-epoch', default=0, type=int,
+                            help='starting epoch, 0 for fresh training, > 0 to resume')
+        parser.add_argument('--use-pretrained', action='store_true',
+                            help='enable using pretrained model from gluon.')
+        parser.add_argument('--wd', type=float, default=0.0001,
+                            help='weight decay rate. default is 0.0001.')
+        parser.add_argument('--write-summary', type=str, default=None,
+                            help='write tensorboard summaries to this path')
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help='training batch size per device (CPU/GPU).')
+    parser.add_argument('--bits', type=int, default=32,
+                        help='number of weight bits')
+    parser.add_argument('--bits-a', type=int, default=32,
+                        help='number of bits for activation')
+    parser.add_argument('--builtin-profiler', type=int, default=0,
+                        help='Enable built-in profiler (0=off, 1=on)')
+    parser.add_argument('--data-dir', type=str, default='',
+                        help='training directory of imagenet images, contains train/val subdirs.')
+    parser.add_argument('--data-path', type=str, default='.',
+                        help='training directory where cifar10 / mnist data should be or is saved.')
+    parser.add_argument('--dataset', type=str, default='cifar10', choices=['mnist', 'cifar10', 'imagenet', 'dummy'],
+                        help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
+    parser.add_argument('--dtype', default='float32', type=str,
+                        help='data type, float32 or float16 if applicable')
+    parser.add_argument('--gpus', type=str, default='',
+                        help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
+    parser.add_argument('--mean-subtraction', action="store_true",
+                        help='whether to subtract ImageNet mean from data')
+    parser.add_argument('--mode', type=str,
+                        help='mode in which to train the model. options are symbolic, imperative, hybrid')
+    parser.add_argument('--model', type=str, required=True,
+                        help='type of model to use. see vision_model for options.')
+    parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
+                        help='number of workers of dataloader.')
+    parser.add_argument('--prefix', default='', type=str,
+                        help='path to checkpoint prefix, default is current working dir')
+    return parser
 
 
-def get_model(model, ctx, opt):
+def get_model(opt, ctx):
     """Model initialization."""
-    kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': classes}
-    if model.startswith('resnet') and dataset == "cifar10":
+    kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
+    if opt.model.startswith('resnet') and opt.dataset == "cifar10":
         kwargs['thumbnail'] = True
-    elif model.startswith('vgg'):
+    elif opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
-    if model.startswith('resnet'):
+    if opt.model.startswith('resnet'):
         kwargs['clip_threshold'] = opt.clip_threshold
 
-    net = binary_models.get_model(model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
+    net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)
     elif not opt.use_pretrained:
-        if model in ['alexnet']:
+        if opt.model in ['alexnet']:
             net.initialize(mx.init.Normal(), ctx=ctx)
         else:
             net.initialize(get_initializer(), ctx=ctx)
     net.cast(opt.dtype)
     return net
+
+
+def get_num_classes(dataset):
+    return {'mnist': 10, 'cifar10': 10, 'imagenet': 1000, 'dummy': 1000}[dataset]
 
 
 def get_shape(dataset):
@@ -173,30 +154,27 @@ def get_initializer():
         return mx.init.Xavier(rnd_type="gaussian", factor_type="in", magnitude=2)
 
 
-net = get_model(opt.model, context, opt)
-
-
-def get_data_iters(dataset, batch_size, num_workers=1, rank=0):
+def get_data_iters(opt, num_workers=1, rank=0):
     """get dataset iterators"""
-    if dataset == 'mnist':
-        train_data, val_data = get_mnist_iterator(batch_size, (1, 28, 28),
+    if opt.dataset == 'mnist':
+        train_data, val_data = get_mnist_iterator(opt.batch_size, (1, 28, 28),
                                                   num_parts=num_workers, part_index=rank)
-    elif dataset == 'cifar10':
-        train_data, val_data = get_cifar10_iterator(batch_size, (3, 32, 32), num_parts=num_workers, part_index=rank,
+    elif opt.dataset == 'cifar10':
+        train_data, val_data = get_cifar10_iterator(opt.batch_size, (3, 32, 32), num_parts=num_workers, part_index=rank,
                                                     dir=opt.data_path, aug_level=opt.augmentation_level,
                                                     mean_subtraction=opt.mean_subtraction)
-    elif dataset == 'imagenet':
+    elif opt.dataset == 'imagenet':
         if not opt.data_dir:
             raise ValueError('Dir containing rec files is required for imagenet, please specify "--data-dir"')
-        if model_name == 'inceptionv3':
-            train_data, val_data = get_imagenet_iterator(opt.data_dir, batch_size, opt.num_workers, 299, opt.dtype)
+        if opt.model == 'inceptionv3':
+            train_data, val_data = get_imagenet_iterator(opt.data_dir, opt.batch_size, opt.num_workers, 299, opt.dtype)
         else:
-            train_data, val_data = get_imagenet_iterator(opt.data_dir, batch_size, opt.num_workers, 224, opt.dtype)
+            train_data, val_data = get_imagenet_iterator(opt.data_dir, opt.batch_size, opt.num_workers, 224, opt.dtype)
     elif dataset == 'dummy':
-        if model_name == 'inceptionv3':
-            train_data, val_data = dummy_iterator(batch_size, (3, 299, 299))
+        if opt.model == 'inceptionv3':
+            train_data, val_data = dummy_iterator(opt.batch_size, (3, 299, 299))
         else:
-            train_data, val_data = dummy_iterator(batch_size, (3, 224, 224))
+            train_data, val_data = dummy_iterator(opt.batch_size, (3, 224, 224))
     return train_data, val_data
 
 
@@ -248,7 +226,7 @@ def train(opt, ctx):
     if isinstance(ctx, mx.Context):
         ctx = [ctx]
     kv = mx.kv.create(opt.kvstore)
-    train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
+    train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
     net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
@@ -374,7 +352,7 @@ def main():
         profiler.set_state('run')
     if opt.mode == 'symbolic':
         kv = mx.kv.create(opt.kvstore)
-        train_data, val_data = get_data_iters(dataset, batch_size, kv.num_workers, kv.rank)
+        train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
 
         # dummy forward pass with gluon to initialize binary layers
         with autograd.record():
@@ -409,6 +387,34 @@ def main():
 
 
 if __name__ == '__main__':
+    parser = get_parser()
+    opt = parser.parse_args()
+
+    # logging
+    logging.basicConfig(level=logging.INFO)
+    fh = logging.FileHandler(opt.log)
+    logger = logging.getLogger()
+    logger.addHandler(fh)
+    formatter = logging.Formatter('%(message)s')
+    fh.setFormatter(formatter)
+    fh.setLevel(logging.DEBUG)
+    logging.debug('\n%s', '-' * 100)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    fh.setFormatter(formatter)
+
+    # global variables
+    logger.info('Starting new image-classification task:, %s', opt)
+    mx.random.seed(opt.seed)
+    model_name = opt.model
+    batch_size, dataset, classes = opt.batch_size, opt.dataset, get_num_classes(opt.dataset)
+    context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
+    num_gpus = len(context)
+    batch_size *= max(1, num_gpus)
+    lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
+    metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
+
+    net = get_model(opt, context)
+
     if opt.profile:
         import hotshot, hotshot.stats
         prof = hotshot.Profile('image-classifier-%s-%s.prof'%(opt.model, opt.mode))
