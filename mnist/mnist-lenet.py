@@ -115,7 +115,7 @@ val_data = gluon.data.DataLoader(
 
 
 def dummy_data(ctx):
-    return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in ([opt.batch_size, 1, 28, 28], [100])]
+    return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in ([opt.batch_size, 1, 28, 28], [opt.batch_size])]
 
 
 # train
