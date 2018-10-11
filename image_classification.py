@@ -39,10 +39,6 @@ def get_parser(training=True):
                             help='augmentation level, default is 1, possible values are: 1, 2, 3.')
         parser.add_argument('--batch-norm', action='store_true',
                             help='enable batch normalization or not in vgg. default is false.')
-        parser.add_argument('--bits', type=int, default=32,
-                            help='number of weight bits')
-        parser.add_argument('--bits-a', type=int, default=32,
-                            help='number of bits for activation')
         parser.add_argument('--clip-threshold', type=float, default=1.0,
                             help='clipping threshold, default is 1.0.')
         parser.add_argument('--epochs', type=int, default=120,
@@ -86,6 +82,10 @@ def get_parser(training=True):
                             help='write tensorboard summaries to this path')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
+    parser.add_argument('--bits', type=int, default=32,
+                        help='number of weight bits')
+    parser.add_argument('--bits-a', type=int, default=32,
+                        help='number of bits for activation')
     parser.add_argument('--builtin-profiler', type=int, default=0,
                         help='Enable built-in profiler (0=off, 1=on)')
     parser.add_argument('--data-dir', type=str, default='',
@@ -111,27 +111,31 @@ def get_parser(training=True):
     return parser
 
 
-def get_model(model, ctx, opt):
+def get_model(opt, ctx):
     """Model initialization."""
-    kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': classes}
-    if model.startswith('resnet') and dataset == "cifar10":
+    kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
+    if opt.model.startswith('resnet') and opt.dataset == "cifar10":
         kwargs['thumbnail'] = True
-    elif model.startswith('vgg'):
+    elif opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
-    if model.startswith('resnet'):
+    if opt.model.startswith('resnet'):
         kwargs['clip_threshold'] = opt.clip_threshold
 
-    net = binary_models.get_model(model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
+    net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)
     elif not opt.use_pretrained:
-        if model in ['alexnet']:
+        if opt.model in ['alexnet']:
             net.initialize(mx.init.Normal(), ctx=ctx)
         else:
             net.initialize(get_initializer(), ctx=ctx)
     net.cast(opt.dtype)
     return net
+
+
+def get_num_classes(dataset):
+    return {'mnist': 10, 'cifar10': 10, 'imagenet': 1000, 'dummy': 1000}[dataset]
 
 
 def get_shape(dataset):
@@ -402,15 +406,14 @@ if __name__ == '__main__':
     logger.info('Starting new image-classification task:, %s', opt)
     mx.random.seed(opt.seed)
     model_name = opt.model
-    dataset_classes = {'mnist': 10, 'cifar10': 10, 'imagenet': 1000, 'dummy': 1000}
-    batch_size, dataset, classes = opt.batch_size, opt.dataset, dataset_classes[opt.dataset]
+    batch_size, dataset, classes = opt.batch_size, opt.dataset, get_num_classes(opt.dataset)
     context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
     num_gpus = len(context)
     batch_size *= max(1, num_gpus)
     lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
     metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 
-    net = get_model(opt.model, context, opt)
+    net = get_model(opt, context)
 
     if opt.profile:
         import hotshot, hotshot.stats
