@@ -18,7 +18,7 @@
 # coding: utf-8
 # pylint: disable= arguments-differ
 """DenseNet, implemented in Gluon."""
-__all__ = ['DenseNet', 'densenet121', 'densenet161', 'densenet169', 'densenet201']
+__all__ = ['DenseNet', 'densenet21', 'densenet121', 'densenet161', 'densenet169', 'densenet201']
 
 import os
 
@@ -28,24 +28,37 @@ from mxnet.gluon import nn
 from mxnet.gluon.contrib.nn import HybridConcurrent, Identity
 from mxnet import base
 
+
 # Helpers
-def _make_dense_block(num_layers, bn_size, growth_rate, dropout, stage_index):
+def _make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, stage_index):
     out = nn.HybridSequential(prefix='stage%d_'%stage_index)
     with out.name_scope():
         for _ in range(num_layers):
-            out.add(_make_dense_layer(growth_rate, bn_size, dropout))
+            out.add(_make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout))
     return out
 
-def _make_dense_layer(growth_rate, bn_size, dropout):
+
+def _make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout):
     new_features = nn.HybridSequential(prefix='')
-    new_features.add(nn.BatchNorm())
-    new_features.add(nn.Activation('relu'))
-    new_features.add(nn.QConv2D(bn_size * growth_rate, kernel_size=1, use_bias=False))
-    new_features.add(nn.BatchNorm())
-    new_features.add(nn.Activation('relu'))
-    new_features.add(nn.QConv2D(growth_rate, kernel_size=3, padding=1, use_bias=False))
-    if dropout:
-        new_features.add(nn.Dropout(dropout))
+    if bn_size == 0:
+        # no bottleneck
+        new_features.add(nn.BatchNorm())
+        new_features.add(nn.QActivation(bits=bits_a))
+        new_features.add(nn.QConv2D(growth_rate, bits=bits, kernel_size=3, padding=1))
+        if dropout:
+            new_features.add(nn.Dropout(dropout))
+    else:
+        # bottleneck design
+        new_features.add(nn.BatchNorm())
+        new_features.add(nn.QActivation(bits=bits_a))
+        new_features.add(nn.QConv2D(bn_size * growth_rate, bits=bits, kernel_size=1))
+        if dropout:
+            new_features.add(nn.Dropout(dropout))
+        new_features.add(nn.BatchNorm())
+        new_features.add(nn.QActivation(bits=bits_a))
+        new_features.add(nn.QConv2D(growth_rate, bits=bits, kernel_size=3, padding=1))
+        if dropout:
+            new_features.add(nn.Dropout(dropout))
 
     out = HybridConcurrent(axis=1, prefix='')
     out.add(Identity())
@@ -53,11 +66,12 @@ def _make_dense_layer(growth_rate, bn_size, dropout):
 
     return out
 
-def _make_transition(num_output_features):
+
+def _make_transition(bits, bits_a, num_output_features):
     out = nn.HybridSequential(prefix='')
     out.add(nn.BatchNorm())
-    out.add(nn.Activation('relu'))
-    out.add(nn.QConv2D(num_output_features, kernel_size=1, use_bias=False))
+    out.add(nn.QActivation(bits=bits_a))
+    out.add(nn.QConv2D(num_output_features, bits=bits, kernel_size=1))
     out.add(nn.AvgPool2D(pool_size=2, strides=2))
     return out
 
@@ -82,8 +96,8 @@ class DenseNet(HybridBlock):
     classes : int, default 1000
         Number of classification classes.
     """
-    def __init__(self, num_init_features, growth_rate, block_config,
-                 bn_size=4, dropout=0, classes=1000, **kwargs):
+    def __init__(self, bits, bits_a, num_init_features, growth_rate, block_config,
+                 bn_size=0, dropout=0, classes=1000, **kwargs):
 
         super(DenseNet, self).__init__(**kwargs)
         with self.name_scope():
@@ -96,10 +110,10 @@ class DenseNet(HybridBlock):
             # Add dense blocks
             num_features = num_init_features
             for i, num_layers in enumerate(block_config):
-                self.features.add(_make_dense_block(num_layers, bn_size, growth_rate, dropout, i+1))
+                self.features.add(_make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, i+1))
                 num_features = num_features + num_layers * growth_rate
                 if i != len(block_config) - 1:
-                    self.features.add(_make_transition(num_features // 2))
+                    self.features.add(_make_transition(bits, bits_a, num_features // 2))
                     num_features = num_features // 2
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
@@ -115,14 +129,15 @@ class DenseNet(HybridBlock):
 
 
 # Specification
-densenet_spec = {121: (64, 32, [6, 12, 24, 16]),
+densenet_spec = {21: (64, 32, [2, 2, 2, 2]),
+                 121: (64, 32, [6, 12, 24, 16]),
                  161: (96, 48, [6, 12, 36, 24]),
                  169: (64, 32, [6, 12, 32, 32]),
                  201: (64, 32, [6, 12, 48, 32])}
 
 
 # Constructor
-def get_densenet(num_layers, pretrained=False, ctx=cpu(),
+def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
                  root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""Densenet-BC model from the
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
@@ -139,12 +154,27 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(),
         Location for keeping the model parameters.
     """
     num_init_features, growth_rate, block_config = densenet_spec[num_layers]
-    net = DenseNet(num_init_features, growth_rate, block_config, **kwargs)
+    net = DenseNet(bits, bits_a, num_init_features, growth_rate, block_config, **kwargs)
     if pretrained:
         raise ValueError("No pretrained model exists, yet.")
         # from ..model_store import get_model_file
         # net.load_parameters(get_model_file('densenet%d'%(num_layers), root=root), ctx=ctx)
     return net
+
+def densenet21(**kwargs):
+    r"""Densenet-BC 21-layer model inspired by
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_densenet(21, **kwargs)
 
 def densenet121(**kwargs):
     r"""Densenet-BC 121-layer model from the

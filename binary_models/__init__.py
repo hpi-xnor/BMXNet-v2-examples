@@ -128,6 +128,7 @@ def get_model(name, **kwargs):
               'vgg16_bn': vgg16_bn,
               'vgg19_bn': vgg19_bn,
               'alexnet': alexnet,
+              'densenet21': densenet21,
               'densenet121': densenet121,
               'densenet161': densenet161,
               'densenet169': densenet169,
