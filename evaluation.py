@@ -117,7 +117,7 @@ if __name__ == '__main__':
 
     for i, batch in enumerate(tqdm.tqdm(val_data)):
         padding = 0
-        if num_correct + num_wrong + opt.batch_size >= 50000:
+        if opt.dataset == "imagenet" and num_correct + num_wrong + opt.batch_size >= 50000:
             # fix validation "padding"
             padding = (num_correct + num_wrong + opt.batch_size) - 50000
         data = mx.nd.array(batch.data[0], ctx=ctx)
