@@ -88,6 +88,10 @@ from .vgg import *
 from .mobilenet import *
 
 
+def get_model_parameters():
+    return [DenseNetParameters()]
+
+
 def get_model(name, **kwargs):
     """Returns a pre-defined model by name
 
@@ -128,7 +132,10 @@ def get_model(name, **kwargs):
               'vgg16_bn': vgg16_bn,
               'vgg19_bn': vgg19_bn,
               'alexnet': alexnet,
+              'densenet13': densenet13,
               'densenet21': densenet21,
+              'densenet37': densenet37,
+              'densenet69': densenet69,
               'densenet121': densenet121,
               'densenet161': densenet161,
               'densenet169': densenet169,

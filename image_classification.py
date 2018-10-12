@@ -35,50 +35,51 @@ from datasets.data import *
 def get_parser(training=True):
     parser = argparse.ArgumentParser(description='Train a model for image classification.')
     if training:
-        parser.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
+        train = parser.add_argument_group('Training', 'parameters for training')
+        train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
                             help='augmentation level, default is 1, possible values are: 1, 2, 3.')
-        parser.add_argument('--batch-norm', action='store_true',
+        train.add_argument('--batch-norm', action='store_true',
                             help='enable batch normalization or not in vgg. default is false.')
-        parser.add_argument('--clip-threshold', type=float, default=1.0,
+        train.add_argument('--clip-threshold', type=float, default=1.0,
                             help='clipping threshold, default is 1.0.')
-        parser.add_argument('--epochs', type=int, default=120,
+        train.add_argument('--epochs', type=int, default=120,
                             help='number of training epochs.')
-        parser.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
+        train.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
                             help='weight initialization, default is xavier with magnitude 2.')
-        parser.add_argument('--kvstore', type=str, default='device',
+        train.add_argument('--kvstore', type=str, default='device',
                             help='kvstore to use for trainer/module.')
-        parser.add_argument('--log', type=str, default='image-classification.log',
+        train.add_argument('--log', type=str, default='image-classification.log',
                             help='Filename and path where log file should be stored.')
-        parser.add_argument('--log-interval', type=int, default=50,
+        train.add_argument('--log-interval', type=int, default=50,
                             help='Number of batches to wait before logging.')
-        parser.add_argument('--lr', type=float, default=0.1,
+        train.add_argument('--lr', type=float, default=0.1,
                             help='learning rate. default is 0.1.')
-        parser.add_argument('--lr-factor', default=0.1, type=float,
+        train.add_argument('--lr-factor', default=0.1, type=float,
                             help='learning rate decay ratio')
-        parser.add_argument('--lr-steps', default='30,60,90', type=str,
+        train.add_argument('--lr-steps', default='30,60,90', type=str,
                             help='list of learning rate decay epochs as in str')
-        parser.add_argument('--momentum', type=float, default=0.9,
+        train.add_argument('--momentum', type=float, default=0.9,
                             help='momentum value for optimizer, default is 0.9.')
-        parser.add_argument('--optimizer', type=str, default="sgd",
+        train.add_argument('--optimizer', type=str, default="sgd",
                             help='the optimizer to use. default is sgd.')
-        parser.add_argument('--plot-network', type=str, default=None,
+        train.add_argument('--plot-network', type=str, default=None,
                             help='Whether to output the network plot.')
-        parser.add_argument('--profile', action='store_true',
+        train.add_argument('--profile', action='store_true',
                             help='Option to turn on memory profiling for front-end, and prints out '
                                  'the memory usage by python function at the end.')
-        parser.add_argument('--resume', type=str, default='',
+        train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
-        parser.add_argument('--save-frequency', default=10, type=int,
+        train.add_argument('--save-frequency', default=10, type=int,
                             help='epoch frequence to save model, best model will always be saved')
-        parser.add_argument('--seed', type=int, default=123,
+        train.add_argument('--seed', type=int, default=123,
                             help='random seed to use. Default=123.')
-        parser.add_argument('--start-epoch', default=0, type=int,
+        train.add_argument('--start-epoch', default=0, type=int,
                             help='starting epoch, 0 for fresh training, > 0 to resume')
-        parser.add_argument('--use-pretrained', action='store_true',
+        train.add_argument('--use-pretrained', action='store_true',
                             help='enable using pretrained model from gluon.')
-        parser.add_argument('--wd', type=float, default=0.0001,
+        train.add_argument('--wd', type=float, default=0.0001,
                             help='weight decay rate. default is 0.0001.')
-        parser.add_argument('--write-summary', type=str, default=None,
+        train.add_argument('--write-summary', type=str, default=None,
                             help='write tensorboard summaries to this path')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
@@ -108,18 +109,24 @@ def get_parser(training=True):
                         help='number of workers of dataloader.')
     parser.add_argument('--prefix', default='', type=str,
                         help='path to checkpoint prefix, default is current working dir')
+    for model_parameter in binary_models.get_model_parameters():
+        model_parameter.add_group(parser)
     return parser
 
 
 def get_model(opt, ctx):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
-    if opt.model.startswith('resnet') and opt.dataset == "cifar10":
-        kwargs['thumbnail'] = True
-    elif opt.model.startswith('vgg'):
+    if opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
+
     if opt.model.startswith('resnet'):
+        if opt.dataset == "cifar10":
+            kwargs['thumbnail'] = True
         kwargs['clip_threshold'] = opt.clip_threshold
+
+    for model_parameter in binary_models.get_model_parameters():
+        model_parameter.set_args_for_model(opt, kwargs)
 
     net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
 
