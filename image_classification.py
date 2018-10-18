@@ -304,7 +304,7 @@ def train(opt, ctx):
                     summary_writer.add_scalar("batch-%s" % name[0], acc[0], global_step=global_step)
                     summary_writer.add_scalar("batch-%s" % name[1], acc[1], global_step=global_step)
             btic = time.time()
-            global_step += 1
+            global_step += batch_size
 
         epoch_time = time.time()-tic
 
