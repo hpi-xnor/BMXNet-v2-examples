@@ -19,6 +19,7 @@ from __future__ import division
 
 import argparse, time
 
+from graphviz import ExecutableNotFound
 from mxnet import gluon
 from mxnet import profiler
 import binary_models
@@ -34,14 +35,21 @@ from datasets.data import *
 # CLI
 def get_parser(training=True):
     parser = argparse.ArgumentParser(description='Train a model for image classification.')
+    model = parser.add_argument_group('Model', 'parameters for the model definition')
+    model.add_argument('--bits', type=int, default=32,
+                       help='number of weight bits')
+    model.add_argument('--bits-a', type=int, default=32,
+                       help='number of bits for activation')
+    model.add_argument('--clip-threshold', type=float, default=1.0,
+                       help='clipping threshold, default is 1.0.')
+    model.add_argument('--model', type=str, required=True,
+                        help='type of model to use. see vision_model for options.')
+    model.add_argument('--use-pretrained', action='store_true',
+                       help='enable using pretrained model from gluon.')
     if training:
         train = parser.add_argument_group('Training', 'parameters for training')
         train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
                             help='augmentation level, default is 1, possible values are: 1, 2, 3.')
-        train.add_argument('--batch-norm', action='store_true',
-                            help='enable batch normalization or not in vgg. default is false.')
-        train.add_argument('--clip-threshold', type=float, default=1.0,
-                            help='clipping threshold, default is 1.0.')
         train.add_argument('--epochs', type=int, default=120,
                             help='number of training epochs.')
         train.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
@@ -75,18 +83,12 @@ def get_parser(training=True):
                             help='random seed to use. Default=123.')
         train.add_argument('--start-epoch', default=0, type=int,
                             help='starting epoch, 0 for fresh training, > 0 to resume')
-        train.add_argument('--use-pretrained', action='store_true',
-                            help='enable using pretrained model from gluon.')
         train.add_argument('--wd', type=float, default=0.0001,
                             help='weight decay rate. default is 0.0001.')
         train.add_argument('--write-summary', type=str, default=None,
                             help='write tensorboard summaries to this path')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
-    parser.add_argument('--bits', type=int, default=32,
-                        help='number of weight bits')
-    parser.add_argument('--bits-a', type=int, default=32,
-                        help='number of bits for activation')
     parser.add_argument('--builtin-profiler', type=int, default=0,
                         help='Enable built-in profiler (0=off, 1=on)')
     parser.add_argument('--data-dir', type=str, default='',
@@ -103,8 +105,6 @@ def get_parser(training=True):
                         help='whether to subtract ImageNet mean from data')
     parser.add_argument('--mode', type=str,
                         help='mode in which to train the model. options are symbolic, imperative, hybrid')
-    parser.add_argument('--model', type=str, required=True,
-                        help='type of model to use. see vision_model for options.')
     parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
                         help='number of workers of dataloader.')
     parser.add_argument('--prefix', default='', type=str,
@@ -201,6 +201,8 @@ def test(ctx, val_data):
 def update_learning_rate(lr, trainer, epoch, ratio, steps):
     """Set the learning rate to the initial value decayed by ratio every N epochs."""
     new_lr = lr * (ratio ** int(np.sum(np.array(steps) < epoch)))
+    if trainer.learning_rate != new_lr:
+        logger.info('[Epoch %d] Change learning rate to %f', new_lr)
     trainer.set_learning_rate(new_lr)
     return trainer
 
@@ -260,7 +262,10 @@ def train(opt, ctx):
             with redirect_stdout(f):
                 mx.viz.print_summary(sym, shape={"data": get_shape(dataset)})
         a = mx.viz.plot_network(sym, shape={"data": get_shape(dataset)})
-        a.render('{}.gv'.format(opt.plot_network), view=True)
+        try:
+            a.render('{}.gv'.format(opt.plot_network))
+        except ExecutableNotFound as e:
+            logger.error(e)
 
     global_step = 0
     if summary_writer:

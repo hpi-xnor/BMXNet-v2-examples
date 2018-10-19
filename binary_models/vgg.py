@@ -19,7 +19,8 @@
 # pylint: disable= arguments-differ
 """VGG, implemented in Gluon."""
 from __future__ import division
-__all__ = ['VGG',
+
+__all__ = ['VGG', 'VGGParameters',
            'vgg11', 'vgg13', 'vgg16', 'vgg19',
            'vgg11_bn', 'vgg13_bn', 'vgg16_bn', 'vgg19_bn',
            'get_vgg']
@@ -31,6 +32,9 @@ from mxnet.initializer import Xavier
 from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
 from mxnet import base
+
+from binary_models.model_parameters import ModelParameters
+
 
 
 class VGG(HybridBlock):
@@ -92,6 +96,21 @@ vgg_spec = {11: ([1, 1, 2, 2, 2], [64, 128, 256, 512, 512]),
             13: ([2, 2, 2, 2, 2], [64, 128, 256, 512, 512]),
             16: ([2, 2, 3, 3, 3], [64, 128, 256, 512, 512]),
             19: ([2, 2, 4, 4, 4], [64, 128, 256, 512, 512])}
+
+
+class VGGParameters(ModelParameters):
+    def __init__(self):
+        super(VGGParameters, self).__init__('VGG')
+
+    def _is_it_this_model(self, opt):
+        return opt.model.startswith('vgg')
+
+    def _map_opt_to_kwargs(self, opt, kwargs):
+        kwargs['batch_norm'] = opt.batch_norm
+
+    def _add_arguments(self, parser):
+        parser.add_argument('--batch-norm', action='store_true',
+                           help='enable batch normalization or not. default is false.')
 
 
 # Constructors

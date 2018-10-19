@@ -89,7 +89,7 @@ from .mobilenet import *
 
 
 def get_model_parameters():
-    return [DenseNetParameters()]
+    return [DenseNetParameters(), VGGParameters()]
 
 
 def get_model(name, **kwargs):

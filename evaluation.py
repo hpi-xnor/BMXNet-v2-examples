@@ -32,16 +32,14 @@ from image_classification import get_parser, get_data_iters, get_model
 
 
 parser = get_parser(False)
-parser.add_argument('--symbol', type=str, required=True,
-                    help='the symbol.json of the model which should be used')
 parser.add_argument('--params', type=str, required=True,
                     help='the .params with the model weights')
 parser.add_argument('--verbose', action="store_true",
                     help='prints information about the model before evaluating')
 opt = parser.parse_args()
 
-opt.use_pretrained = False
-opt.clip_threshold = 1.0
+# opt.use_pretrained = False
+# opt.clip_threshold = 1.0
 opt.augmentation_level = 0
 
 
