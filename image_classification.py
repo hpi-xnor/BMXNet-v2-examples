@@ -202,7 +202,7 @@ def update_learning_rate(lr, trainer, epoch, ratio, steps):
     """Set the learning rate to the initial value decayed by ratio every N epochs."""
     new_lr = lr * (ratio ** int(np.sum(np.array(steps) < epoch)))
     if trainer.learning_rate != new_lr:
-        logger.info('[Epoch %d] Change learning rate to %f', new_lr)
+        logger.info('[Epoch %d] Change learning rate to %f', epoch, new_lr)
     trainer.set_learning_rate(new_lr)
     return trainer
 
