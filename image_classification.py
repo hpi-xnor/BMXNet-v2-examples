@@ -36,9 +36,9 @@ from datasets.data import *
 def get_parser(training=True):
     parser = argparse.ArgumentParser(description='Train a model for image classification.')
     model = parser.add_argument_group('Model', 'parameters for the model definition')
-    model.add_argument('--bits', type=int, default=32,
+    model.add_argument('--bits', type=int, default=1,
                        help='number of weight bits')
-    model.add_argument('--bits-a', type=int, default=32,
+    model.add_argument('--bits-a', type=int, default=1,
                        help='number of bits for activation')
     model.add_argument('--clip-threshold', type=float, default=1.0,
                        help='clipping threshold, default is 1.0.')
@@ -48,11 +48,11 @@ def get_parser(training=True):
                        help='enable using pretrained model from gluon.')
     if training:
         train = parser.add_argument_group('Training', 'parameters for training')
-        train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=1,
+        train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=3,
                             help='augmentation level, default is 1, possible values are: 1, 2, 3.')
         train.add_argument('--epochs', type=int, default=120,
                             help='number of training epochs.')
-        train.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="default",
+        train.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="gaussian",
                             help='weight initialization, default is xavier with magnitude 2.')
         train.add_argument('--kvstore', type=str, default='device',
                             help='kvstore to use for trainer/module.')
@@ -60,16 +60,16 @@ def get_parser(training=True):
                             help='Filename and path where log file should be stored.')
         train.add_argument('--log-interval', type=int, default=50,
                             help='Number of batches to wait before logging.')
-        train.add_argument('--lr', type=float, default=0.1,
-                            help='learning rate. default is 0.1.')
+        train.add_argument('--lr', type=float, default=0.01,
+                            help='learning rate. default is 0.01.')
         train.add_argument('--lr-factor', default=0.1, type=float,
                             help='learning rate decay ratio')
         train.add_argument('--lr-steps', default='30,60,90', type=str,
                             help='list of learning rate decay epochs as in str')
         train.add_argument('--momentum', type=float, default=0.9,
                             help='momentum value for optimizer, default is 0.9.')
-        train.add_argument('--optimizer', type=str, default="sgd",
-                            help='the optimizer to use. default is sgd.')
+        train.add_argument('--optimizer', type=str, default="adam",
+                            help='the optimizer to use. default is adam.')
         train.add_argument('--plot-network', type=str, default=None,
                             help='Whether to output the network plot.')
         train.add_argument('--profile', action='store_true',
@@ -83,8 +83,8 @@ def get_parser(training=True):
                             help='random seed to use. Default=123.')
         train.add_argument('--start-epoch', default=0, type=int,
                             help='starting epoch, 0 for fresh training, > 0 to resume')
-        train.add_argument('--wd', type=float, default=0.0001,
-                            help='weight decay rate. default is 0.0001.')
+        train.add_argument('--wd', type=float, default=0.0,
+                            help='weight decay rate. default is 0.0.')
         train.add_argument('--write-summary', type=str, default=None,
                             help='write tensorboard summaries to this path')
     parser.add_argument('--batch-size', type=int, default=32,
@@ -103,7 +103,7 @@ def get_parser(training=True):
                         help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
     parser.add_argument('--mean-subtraction', action="store_true",
                         help='whether to subtract ImageNet mean from data')
-    parser.add_argument('--mode', type=str,
+    parser.add_argument('--mode', type=str, choices=["symbolic", "imperative", "hybrid"], default="imperative",
                         help='mode in which to train the model. options are symbolic, imperative, hybrid')
     parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
                         help='number of workers of dataloader.')
