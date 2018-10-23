@@ -71,8 +71,9 @@ class BasicBlockV1(HybridBlock):
         self.pre_shortcut = nn.HybridSequential(prefix='')
         self.body = nn.HybridSequential(prefix='')
         self.downsample = None
+        self.modifier = modifier
 
-        if 'scaled' in modifier:
+        if 'scaled' in self.modifier:
             self._init_scaled()
         else:
             self._init_standard()
@@ -120,6 +121,7 @@ class ScaledBinaryConv(HybridBlock):
     r"""ScaledBinaryConv implements scaled binarized 2D convolution,
         introduced by XNOR-Net Paper
     """
+
     def __init__(self, bits, bits_a, channels, kernel_size, stride, padding=0, in_channels=0, clip_threshold=1.0,
                  prefix=None, **kwargs):
         super(ScaledBinaryConv, self).__init__(**kwargs)
@@ -132,12 +134,13 @@ class ScaledBinaryConv(HybridBlock):
         self.in_channels = in_channels
 
     def hybrid_forward(self, F, x):
+        y = self.qconv(self.qact(x))
         A = x.abs().mean(axis=1, keepdims=True)
-        k = F.ones((1, 1, self.kernel_size, self.kernel_size)) / self.kernel_size ** 2
+        k = F.full((1, 1, self.kernel_size, self.kernel_size), 1 / self.kernel_size ** 2)
         K = F.Convolution(A, k, bias=None, name='scaling_conv', num_filter=1,
                           kernel=(self.kernel_size, self.kernel_size), no_bias=True, stride=(self.stride, self.stride),
                           pad=(self.padding, self.padding), layout='NCHW')
-        y = self.qconv(self.qact(x))
+        K = F.stop_gradient(K)
         return F.broadcast_mul(K, y)
 
 
