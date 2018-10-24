@@ -85,7 +85,9 @@ class BasicBlockV1(HybridBlock):
     in_channels : int, default 0
         Number of input channels. Default is 0, to infer from the graph.
     """
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[], **kwargs):
+
+    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
+                 **kwargs):
         super(BasicBlockV1, self).__init__(**kwargs)
         self.bits = bits
         self.bits_a = bits_a
@@ -97,20 +99,13 @@ class BasicBlockV1(HybridBlock):
         self.body = nn.HybridSequential(prefix='')
         self.downsample = None
         if downsample:
-            self._init_downsample()
+            self.downsample = nn.HybridSequential(prefix='')
         self.modifier = modifier
 
         if 'scaled' in self.modifier:
             self._init_scaled()
         else:
             self._init_standard()
-
-    def _init_downsample(self):
-        self.downsample = nn.HybridSequential(prefix='')
-        self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-        self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
-                                       prefix="sc_qconv_"))
-        self.downsample.add(nn.BatchNorm())
 
     def _init_standard(self):
         self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
@@ -120,6 +115,13 @@ class BasicBlockV1(HybridBlock):
         self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
         self.body.add(nn.BatchNorm())
 
+        if self.downsample is not None:
+            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
+            self.downsample.add(
+                nn.QConv2D(self.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
+                           prefix="sc_qconv_"))
+            self.downsample.add(nn.BatchNorm())
+
     def _init_scaled(self):
         self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
                                        in_channels=self.in_channels, clip_threshold=self.clip_threshold))
@@ -128,14 +130,17 @@ class BasicBlockV1(HybridBlock):
                                        in_channels=self.channels, clip_threshold=self.clip_threshold))
         self.body.add(nn.BatchNorm())
 
+        if self.downsample is not None:
+            self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
+                                                 in_channels=self.in_channels, clip_threshold=self.clip_threshold))
+            self.downsample.add(nn.BatchNorm())
+
     def hybrid_forward(self, F, x):
         residual = x
-        x = self.body(x)
-
         if self.downsample:
-            residual = self.downsample(residual)
-
-        # original paper does activation here: QActivation(residual + x)
+            residual = self.downsample(x)
+        x = self.body(x)
+        # usually activation here, but it is now at start of each unit
         return residual + x
 
 
@@ -209,13 +214,14 @@ class BasicBlockV2(HybridBlock):
         self.bits_a = bits_a
         self.channels = channels
         self.stride = stride
-        self.should_downsample = downsample
         self.in_channels = in_channels
         self.clip_threshold = clip_threshold
 
-        self.pre_shortcut = nn.HybridSequential(prefix='')
+        self.bn = nn.BatchNorm()
         self.body = nn.HybridSequential(prefix='')
         self.downsample = None
+        if downsample:
+            self.downsample = nn.HybridSequential(prefix='')
         self.modifier = modifier
 
         if 'scaled' in self.modifier:
@@ -224,21 +230,18 @@ class BasicBlockV2(HybridBlock):
             self._init_standard()
 
     def _init_standard(self):
-        self.pre_shortcut.add(nn.BatchNorm())
-        self.pre_shortcut.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-
+        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
         self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
         self.body.add(nn.BatchNorm())
         self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
         self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
 
-        if self.should_downsample:
-            self.downsample = nn.QConv2D(self.channels, kernel_size=1, strides=self.stride,
-                                         in_channels=self.in_channels, prefix="sc_qconv_")
+        if self.downsample is not None:
+            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
+            self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=self.stride,
+                                           in_channels=self.in_channels, prefix="sc_qconv_"))
 
     def _init_scaled(self):
-        self.pre_shortcut.add(nn.BatchNorm())
-
         self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
                                        in_channels=self.in_channels, clip_threshold=self.clip_threshold))
         self.body.add(nn.BatchNorm())
@@ -246,21 +249,19 @@ class BasicBlockV2(HybridBlock):
             ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, 1, padding=1, in_channels=self.channels,
                              clip_threshold=self.clip_threshold))
 
-        if self.should_downsample:
-            self.downsample = ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                               in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                               prefix="sc_qconv_")
+        if self.downsample is not None:
+            self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
+                                                 in_channels=self.in_channels, clip_threshold=self.clip_threshold,
+                                                 prefix="sc_qconv_"))
 
     def hybrid_forward(self, F, x):
-        residual = x
+        bn = self.bn(x)
         if self.downsample:
-            residual = self.pre_shortcut(residual)
-            residual = self.downsample(residual)
-
-        x = self.pre_shortcut(x)
-        x = self.body(x)
-
-        return residual+x
+            residual = self.downsample(bn)
+        else:
+            residual = x
+        x = self.body(bn)
+        return residual + x
 
 
 class BottleneckV2(HybridBlock):
