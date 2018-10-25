@@ -18,9 +18,9 @@
 from __future__ import division
 
 import argparse, time
-
+import math
 from graphviz import ExecutableNotFound
-from mxnet import gluon
+from mxnet import gluon, lr_scheduler
 from mxnet import profiler
 import binary_models
 from mxnet import autograd
@@ -153,6 +153,10 @@ def get_default_save_frequency(dataset):
     return {'mnist': 10, 'cifar10': 10, 'imagenet': 1, 'dummy': 1}[dataset]
 
 
+def get_num_examples(dataset):
+    return {'mnist': 60000, 'cifar10': 50000, 'imagenet': 1281167, 'dummy': 1000}[dataset]
+
+
 def get_shape(dataset):
     if dataset == 'mnist':
         return (1, 1, 28, 28)
@@ -236,8 +240,41 @@ def get_dummy_data(opt, ctx):
     return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
 
 
-def get_optimizer(opt):
-    params = {'learning_rate': opt.lr, 'wd': opt.wd, 'multi_precision': True}
+def _get_lr_scheduler(opt, kv=None):
+    if 'lr_factor' not in opt or opt.lr_factor >= 1:
+        return opt.lr, None
+    global lr_steps, batch_size
+    lr, lr_factor = opt.lr, opt.lr_factor
+    start_epoch = opt.start_epoch
+    num_examples = get_num_examples(opt.dataset)
+    n_workers = 1 if kv == None else kv.num_workers
+    its_per_epoch = math.ceil((num_examples // n_workers) / batch_size)
+
+    # move forward to start epoch
+    for s in lr_steps:
+        if start_epoch >= s:
+            lr *= lr_factor
+    if lr != opt.lr:
+        logger.info('Adjust learning rate to %e for epoch %d', lr, start_epoch)
+
+    steps = [its_per_epoch * (epoch - start_epoch)
+             for epoch in lr_steps if epoch - start_epoch > 0]
+    if steps:
+        return (lr, lr_scheduler.MultiFactorScheduler(step=steps, factor=lr_factor))
+    else:
+        return (lr, None)
+
+
+def get_optimizer(opt, kv=None, with_scheduler=False):
+    # learning rate
+    lr, lr_scheduler = _get_lr_scheduler(opt, kv)
+    params = {
+        'learning_rate': lr,
+        'wd': opt.wd,
+        'multi_precision': True
+    }
+    if with_scheduler:
+        params['lr_scheduler'] = lr_scheduler
     if opt.optimizer == "sgd":
         params['momentum'] = opt.momentum
     return opt.optimizer, params
@@ -249,7 +286,7 @@ def train(opt, ctx):
     kv = mx.kv.create(opt.kvstore)
     train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
     net.collect_params().reset_ctx(ctx)
-    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
+    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt, kv), kvstore = kv)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # dummy forward pass to initialize binary layers
@@ -388,19 +425,20 @@ def main():
         out = net(data)
         softmax = mx.sym.SoftmaxOutput(out, name='softmax')
         mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
-        optimizer, optimizer_params = get_optimizer(opt)
+        optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
         model_path = os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
         eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
         mod.fit(train_data,
-                eval_data = val_data,
-                eval_metric = eval_metric,
+                begin_epoch=opt.start_epoch,
+                eval_data=val_data,
+                eval_metric=eval_metric,
                 num_epoch=opt.epochs,
                 kvstore=kv,
-                batch_end_callback = mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
-                epoch_end_callback = mx.callback.do_checkpoint(model_path),
-                optimizer = optimizer,
-                optimizer_params = optimizer_params,
-                initializer = get_initializer())
+                batch_end_callback=mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
+                epoch_end_callback=mx.callback.do_checkpoint(model_path),
+                optimizer=optimizer,
+                optimizer_params=optimizer_params,
+                initializer=get_initializer())
         mod.save_params('%s-%d-final.params' % (model_path, opt.epochs))
     else:
         if opt.mode == 'hybrid':
