@@ -260,7 +260,7 @@ def train(opt, ctx):
         sym = net(x)
         with open('{}.txt'.format(opt.plot_network), 'w') as f:
             with redirect_stdout(f):
-                mx.viz.print_summary(sym, shape={"data": get_shape(dataset)})
+                mx.viz.print_summary(sym, shape={"data": get_shape(dataset)}, quantized_bitwidth=opt.bits)
         a = mx.viz.plot_network(sym, shape={"data": get_shape(dataset)})
         try:
             a.render('{}.gv'.format(opt.plot_network))
