@@ -353,6 +353,7 @@ class ResNetV1(HybridBlock):
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
             self.features.add(nn.MaxPool2D(3, 2, 1))
+            self.features.add(nn.BatchNorm())
 
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
@@ -360,8 +361,9 @@ class ResNetV1(HybridBlock):
                                                stride, i+1, in_channels=channels[i], modifier=modifier))
 
         # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
+        # but we need the relu, since we do not have activition in blocks
         # self.features.add(nn.BatchNorm())
-        # self.features.add(nn.Activation('relu'))
+        self.features.add(nn.Activation('relu'))
 
         self.features.add(nn.GlobalAvgPool2D())
         self.features.add(nn.Flatten())
