@@ -101,7 +101,8 @@ class DenseNet(HybridBlock):
         Number of classification classes.
     """
     def __init__(self, bits, bits_a, num_init_features, growth_rate, block_config, reduction, bn_size,
-                 dropout=0, classes=1000, **kwargs):
+                 modifier=[], dropout=0, classes=1000, **kwargs):
+        assert len(modifier) == 0
 
         super(DenseNet, self).__init__(**kwargs)
         with self.name_scope():
