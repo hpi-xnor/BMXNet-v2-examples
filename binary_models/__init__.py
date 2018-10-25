@@ -75,6 +75,8 @@ The transformation should preferrably happen at preprocessing. You can use
 
 from .alexnet import *
 
+from .binet import *
+
 from .densenet import *
 
 from .inception import *
@@ -150,7 +152,8 @@ def get_model(name, **kwargs):
               'mobilenetv2_1.0': mobilenet_v2_1_0,
               'mobilenetv2_0.75': mobilenet_v2_0_75,
               'mobilenetv2_0.5': mobilenet_v2_0_5,
-              'mobilenetv2_0.25': mobilenet_v2_0_25
+              'mobilenetv2_0.25': mobilenet_v2_0_25,
+              'binet': binet18,
              }
     name = name.lower()
     name, *modifier = name.split('-')
