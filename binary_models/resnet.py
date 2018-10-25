@@ -347,7 +347,8 @@ class ResNetV1(HybridBlock):
         if thumbnail:
             self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
                                         use_bias=False))
-            self.features.add(nn.BatchNorm())
+            # MXNet has a batch norm here, binary resnet performs better without
+            # self.features.add(nn.BatchNorm())
         else:
             self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
             self.features.add(nn.BatchNorm())
