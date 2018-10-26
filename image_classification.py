@@ -77,7 +77,7 @@ def get_parser(training=True):
                                  'the memory usage by python function at the end.')
         train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
-        train.add_argument('--save-frequency', default=10, type=int,
+        train.add_argument('--save-frequency', default=None, type=int,
                             help='epoch frequence to save model, best model will always be saved')
         train.add_argument('--seed', type=int, default=123,
                             help='random seed to use. Default=123.')
@@ -143,6 +143,10 @@ def get_model(opt, ctx):
 
 def get_num_classes(dataset):
     return {'mnist': 10, 'cifar10': 10, 'imagenet': 1000, 'dummy': 1000}[dataset]
+
+
+def get_default_save_frequency(dataset):
+    return {'mnist': 10, 'cifar10': 10, 'imagenet': 1, 'dummy': 1}[dataset]
 
 
 def get_shape(dataset):
@@ -415,6 +419,8 @@ if __name__ == '__main__':
     fh.setFormatter(formatter)
 
     # global variables
+    if opt.save_frequency is None:
+        opt.save_frequency = get_default_save_frequency(opt.dataset)
     logger.info('Starting new image-classification task:, %s', opt)
     mx.random.seed(opt.seed)
     model_name = opt.model
