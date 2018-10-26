@@ -118,8 +118,11 @@ class DenseNet(HybridBlock):
                 self.features.add(_make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, i+1))
                 num_features = num_features + num_layers * growth_rate
                 if i != len(block_config) - 1:
-                    self.features.add(_make_transition(bits, bits_a, num_features // reduction))
-                    num_features = num_features // 2
+                    features_after_transition = num_features // reduction[i]
+                    # make it to be multiples of 32
+                    features_after_transition = int(round(features_after_transition / 32)) * 32
+                    self.features.add(_make_transition(bits, bits_a, features_after_transition))
+                    num_features = features_after_transition
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
             self.features.add(nn.AvgPool2D(pool_size=7))
@@ -160,8 +163,8 @@ class DenseNetParameters(ModelParameters):
         kwargs['opt_init_features'] = opt.init_features
 
     def _add_arguments(self, parser):
-        parser.add_argument('--reduction', type=int, default=None,
-                            help='divide channels in transition block by this much')
+        parser.add_argument('--reduction', type=str, default=None,
+                            help='reduce channels in transition blocks (1 or 3 values, e.g. ".5" or "1,.5,.5")')
         parser.add_argument('--growth-rate', type=int, default=None,
                             help='add this many features each block')
         parser.add_argument('--init-features', type=int, default=None,
@@ -187,12 +190,19 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
         Location for keeping the model parameters.
     """
     init_features, growth_rate, bn_size, reduction, block_config = densenet_spec[num_layers]
+    num_transition_blocks = len(block_config) - 1
     if opt_init_features is not None:
         init_features = opt_init_features
     if opt_growth_rate is not None:
         growth_rate = opt_growth_rate
     if opt_reduction is not None:
-        reduction = opt_reduction
+        split = [float(x) for x in opt_reduction.split(",")]
+        if len(split) == 1:
+            split *= num_transition_blocks
+        reduction = split
+        assert len(reduction) == num_transition_blocks, "need one or three values for --reduction"
+    else:
+        reduction = [reduction] * num_transition_blocks
     net = DenseNet(bits, bits_a, init_features, growth_rate, block_config, reduction, bn_size, **kwargs)
     if pretrained:
         raise ValueError("No pretrained model exists, yet.")
