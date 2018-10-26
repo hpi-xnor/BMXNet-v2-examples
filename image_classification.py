@@ -120,6 +120,12 @@ def get_model_path(opt):
     return os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
 
 
+def _load_model(opt):
+    model_prefix = get_model_path(opt)
+    logger.info('Loaded model %s-%04d.params', model_prefix, opt.start_epoch)
+    return mx.model.load_checkpoint(model_prefix, opt.start_epoch)
+
+
 def get_model(opt, ctx):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
@@ -136,24 +142,24 @@ def get_model(opt, ctx):
     for model_parameter in binary_models.get_model_parameters():
         model_parameter.set_args_for_model(opt, kwargs)
 
-    net = None
-    if opt.use_pretrained and (opt.mode == 'symbolic' or not opt.resume):
-        net_definition = '{}-symbol.json'.format(get_model_path(opt))
-        net_params = '{}-{:04}.params'.format(get_model_path(opt), opt.start_epoch)
-        net = gluon.nn.SymbolBlock.imports(net_definition, ['data'], net_params)
+    skip_init = False
+    arg_params, aux_params = None, None
+    if opt.start_epoch > 0 and opt.mode == 'symbolic':
+        net, arg_params, aux_params = _load_model(opt)
+        skip_init = True
     else:
         net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
-        if opt.resume:
-            net.load_parameters(opt.resume)
 
-    if not opt.use_pretrained:
+    if opt.resume:
+        net.load_parameters(opt.resume)
+        skip_init = True
+    elif not opt.use_pretrained and not skip_init:
         if opt.model in ['alexnet']:
             net.initialize(mx.init.Normal(), ctx=ctx)
         else:
             net.initialize(get_initializer(), ctx=ctx)
-
     net.cast(opt.dtype)
-    return net
+    return net, arg_params, aux_params
 
 
 def get_num_classes(dataset):
@@ -449,6 +455,8 @@ def main():
                 epoch_end_callback=mx.callback.do_checkpoint(model_path, period=opt.save_frequency),
                 optimizer=optimizer,
                 optimizer_params=optimizer_params,
+                arg_params=arg_params,
+                aux_params=aux_params,
                 initializer=get_initializer())
         mod.save_params('%s-%d-final.params' % (model_path, opt.epochs))
     else:
@@ -489,7 +497,7 @@ if __name__ == '__main__':
     lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
     metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 
-    net = get_model(opt, context)
+    net, arg_params, aux_params = get_model(opt, context)
 
     if opt.profile:
         import hotshot, hotshot.stats
