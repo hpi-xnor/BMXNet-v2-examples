@@ -425,40 +425,80 @@ def train(opt, ctx):
     net.export(os.path.join(opt.prefix, "image-classifier-{}bit".format(opt.bits)), epoch=0)
 
 
+def train_symbolic(opt):
+    kv = mx.kv.create(opt.kvstore)
+    train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
+
+    # dummy forward pass with gluon to initialize binary layers
+    with autograd.record():
+        data, label = get_dummy_data(train_data, context[0])
+        output = net(data)
+
+    summary_writer = None
+    if opt.write_summary:
+        from mxboard import SummaryWriter
+        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
+
+    data = mx.sym.var('data')
+    out = net(data)
+    softmax = mx.sym.SoftmaxOutput(out, name='softmax')
+    mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
+    optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
+    model_path = get_model_path(opt)
+    eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
+
+    if opt.plot_network is not None:
+        with open('{}.txt'.format(opt.plot_network), 'w') as f:
+            with redirect_stdout(f):
+                mx.viz.print_summary(out, shape={"data": get_shape(dataset)}, quantized_bitwidth=opt.bits)
+        a = mx.viz.plot_network(out, shape={"data": get_shape(dataset)})
+        try:
+            a.render('{}.gv'.format(opt.plot_network))
+        except ExecutableNotFound as e:
+            logger.error(e)
+
+    batch_end_cbs = [
+        mx.callback.Speedometer(batch_size, max(1, opt.log_interval))
+    ]
+    epoch_end_cbs = [
+        mx.callback.do_checkpoint(model_path, period=opt.save_frequency)
+    ]
+
+    if summary_writer:
+        def metric_callback(param):
+            if not param.eval_metric or param.nbatch % opt.log_interval != 0:
+                return
+            for name, value in param.eval_metric.get_name_value():
+                summary_writer.add_scalar(tag=name, value=value, global_step=param.epoch)
+        batch_end_cbs.append(metric_callback)
+
+        def param_callback(epoch, symbol, arg_params, aux_params):
+            for name in arg_params:
+                summary_writer.add_histogram(tag=name, values=arg_params[name], global_step=epoch, bins=1000)
+        epoch_end_cbs.append(param_callback)
+
+    mod.fit(train_data,
+            begin_epoch=opt.start_epoch,
+            eval_data=val_data,
+            eval_metric=eval_metric,
+            num_epoch=opt.epochs,
+            kvstore=kv,
+            batch_end_callback=batch_end_cbs,
+            epoch_end_callback=epoch_end_cbs,
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            arg_params=arg_params,
+            aux_params=aux_params,
+            initializer=get_initializer())
+    mod.save_params('%s-%d-final.params' % (model_path, opt.epochs))
+
+
 def main():
     if opt.builtin_profiler > 0:
         profiler.set_config(profile_all=True, aggregate_stats=True)
         profiler.set_state('run')
     if opt.mode == 'symbolic':
-        kv = mx.kv.create(opt.kvstore)
-        train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
-
-        # dummy forward pass with gluon to initialize binary layers
-        with autograd.record():
-            data, label = get_dummy_data(opt, context[0])
-            output = net(data)
-
-        data = mx.sym.var('data')
-        out = net(data)
-        softmax = mx.sym.SoftmaxOutput(out, name='softmax')
-        mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
-        optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
-        model_path = get_model_path(opt)
-        eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
-        mod.fit(train_data,
-                begin_epoch=opt.start_epoch,
-                eval_data=val_data,
-                eval_metric=eval_metric,
-                num_epoch=opt.epochs,
-                kvstore=kv,
-                batch_end_callback=mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
-                epoch_end_callback=mx.callback.do_checkpoint(model_path, period=opt.save_frequency),
-                optimizer=optimizer,
-                optimizer_params=optimizer_params,
-                arg_params=arg_params,
-                aux_params=aux_params,
-                initializer=get_initializer())
-        mod.save_params('%s-%d-final.params' % (model_path, opt.epochs))
+        train_symbolic(opt)
     else:
         if opt.mode == 'hybrid':
             net.hybridize()
