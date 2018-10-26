@@ -116,6 +116,10 @@ def get_parser(training=True):
     return parser
 
 
+def get_model_path(opt):
+    return os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
+
+
 def get_model(opt, ctx):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
@@ -132,15 +136,22 @@ def get_model(opt, ctx):
     for model_parameter in binary_models.get_model_parameters():
         model_parameter.set_args_for_model(opt, kwargs)
 
-    net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
+    net = None
+    if opt.use_pretrained and (opt.mode == 'symbolic' or not opt.resume):
+        net_definition = '{}-symbol.json'.format(get_model_path(opt))
+        net_params = '{}-{:04}.params'.format(get_model_path(opt), opt.start_epoch)
+        net = gluon.nn.SymbolBlock.imports(net_definition, ['data'], net_params)
+    else:
+        net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
+        if opt.resume:
+            net.load_parameters(opt.resume)
 
-    if opt.resume:
-        net.load_parameters(opt.resume)
-    elif not opt.use_pretrained:
+    if not opt.use_pretrained:
         if opt.model in ['alexnet']:
             net.initialize(mx.init.Normal(), ctx=ctx)
         else:
             net.initialize(get_initializer(), ctx=ctx)
+
     net.cast(opt.dtype)
     return net
 
@@ -426,7 +437,7 @@ def main():
         softmax = mx.sym.SoftmaxOutput(out, name='softmax')
         mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
         optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
-        model_path = os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
+        model_path = get_model_path(opt)
         eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
         mod.fit(train_data,
                 begin_epoch=opt.start_epoch,
@@ -435,7 +446,7 @@ def main():
                 num_epoch=opt.epochs,
                 kvstore=kv,
                 batch_end_callback=mx.callback.Speedometer(batch_size, max(1, opt.log_interval)),
-                epoch_end_callback=mx.callback.do_checkpoint(model_path),
+                epoch_end_callback=mx.callback.do_checkpoint(model_path, period=opt.save_frequency),
                 optimizer=optimizer,
                 optimizer_params=optimizer_params,
                 initializer=get_initializer())
