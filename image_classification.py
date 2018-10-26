@@ -126,6 +126,8 @@ def get_model(opt, ctx):
         if opt.dataset == "cifar10":
             kwargs['thumbnail'] = True
         kwargs['clip_threshold'] = opt.clip_threshold
+    if opt.model.startswith('densenet') and opt.dataset == "cifar10":
+        kwargs['thumbnail'] = True
 
     for model_parameter in binary_models.get_model_parameters():
         model_parameter.set_args_for_model(opt, kwargs)
