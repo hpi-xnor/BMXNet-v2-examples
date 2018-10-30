@@ -17,10 +17,9 @@
 
 # coding: utf-8
 # pylint: disable= arguments-differ
-"""DenseNet, implemented in Gluon."""
-__all__ = ['DenseNet', 'DenseNetParameters',
-           'densenet13',  'densenet21',  'densenet37',  'densenet69',
-           'densenet121', 'densenet161', 'densenet169', 'densenet201']
+"""DenseNetY, implemented in Gluon."""
+__all__ = ['DenseNetY',
+           'densenet13_y',  'densenet21_y',  'densenet37_y',  'densenet69_y']
 
 import os
 
@@ -29,8 +28,6 @@ from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
 from mxnet.gluon.contrib.nn import HybridConcurrent, Identity
 from mxnet import base
-
-from .model_parameters import ModelParameters
 
 
 # Helpers
@@ -46,11 +43,11 @@ def _make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout):
     new_features = nn.HybridSequential(prefix='')
     if bn_size == 0:
         # no bottleneck
-        new_features.add(nn.BatchNorm())
         new_features.add(nn.QActivation(bits=bits_a))
         new_features.add(nn.QConv2D(growth_rate, bits=bits, kernel_size=3, padding=1))
         if dropout:
             new_features.add(nn.Dropout(dropout))
+        new_features.add(nn.BatchNorm())
     else:
         # bottleneck design
         new_features.add(nn.BatchNorm())
@@ -73,14 +70,14 @@ def _make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout):
 
 def _make_transition(bits, bits_a, num_output_features):
     out = nn.HybridSequential(prefix='')
-    out.add(nn.BatchNorm())
     out.add(nn.QActivation(bits=bits_a))
     out.add(nn.QConv2D(num_output_features, bits=bits, kernel_size=1))
     out.add(nn.AvgPool2D(pool_size=2, strides=2))
+    out.add(nn.BatchNorm())
     return out
 
 # Net
-class DenseNet(HybridBlock):
+class DenseNetY(HybridBlock):
     r"""Densenet-BC model from the
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -104,7 +101,7 @@ class DenseNet(HybridBlock):
                  modifier=[], thumbnail=False, dropout=0, classes=1000, **kwargs):
         assert len(modifier) == 0
 
-        super(DenseNet, self).__init__(**kwargs)
+        super(DenseNetY, self).__init__(**kwargs)
         with self.name_scope():
             self.features = nn.HybridSequential(prefix='')
             if thumbnail:
@@ -112,10 +109,11 @@ class DenseNet(HybridBlock):
                                             use_bias=False))
             else:
                 self.features.add(nn.Conv2D(num_init_features, kernel_size=7,
-                                        strides=2, padding=3, use_bias=False))
+                                            strides=2, padding=3, use_bias=False))
                 self.features.add(nn.BatchNorm())
                 self.features.add(nn.Activation('relu'))
                 self.features.add(nn.MaxPool2D(pool_size=3, strides=2, padding=1))
+                self.features.add(nn.BatchNorm())
             # Add dense blocks
             num_features = num_init_features
             for i, num_layers in enumerate(block_config):
@@ -127,7 +125,6 @@ class DenseNet(HybridBlock):
                     features_after_transition = int(round(features_after_transition / 32)) * 32
                     self.features.add(_make_transition(bits, bits_a, features_after_transition))
                     num_features = features_after_transition
-            self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
             self.features.add(nn.AvgPool2D(pool_size=4 if thumbnail else 7))
             self.features.add(nn.Flatten())
@@ -142,41 +139,16 @@ class DenseNet(HybridBlock):
 
 # Specification
 # init_features, growth_rate, bn_size, reduction, block_config
-densenet_spec = {
+densenet_y_spec = {
     13: (64, 32, 0, 1, [1, 1, 1, 1]),
     21: (64, 32, 0, 1, [2, 2, 2, 2]),
     37: (64, 32, 0, 1, [4, 4, 4, 4]),
     69: (64, 32, 0, 1, [8, 8, 8, 8]),
-    121: (64, 32, 4, 2, [6, 12, 24, 16]),
-    161: (96, 48, 4, 2, [6, 12, 36, 24]),
-    169: (64, 32, 4, 2, [6, 12, 32, 32]),
-    201: (64, 32, 4, 2, [6, 12, 48, 32]),
 }
 
 
-class DenseNetParameters(ModelParameters):
-    def __init__(self):
-        super(DenseNetParameters, self).__init__('DenseNet')
-
-    def _is_it_this_model(self, opt):
-        return opt.model.startswith('densenet')
-
-    def _map_opt_to_kwargs(self, opt, kwargs):
-        kwargs['opt_reduction'] = opt.reduction
-        kwargs['opt_growth_rate'] = opt.growth_rate
-        kwargs['opt_init_features'] = opt.init_features
-
-    def _add_arguments(self, parser):
-        parser.add_argument('--reduction', type=str, default=None,
-                            help='reduce channels in transition blocks (1 or 3 values, e.g. ".5" or "1,.5,.5")')
-        parser.add_argument('--growth-rate', type=int, default=None,
-                            help='add this many features each block')
-        parser.add_argument('--init-features', type=int, default=None,
-                            help='start with this many filters in the first layer')
-
-
 # Constructor
-def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
+def get_densenet_y(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
                  opt_init_features=None, opt_growth_rate=None, opt_reduction=None,
                  root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""Densenet-BC model from the
@@ -185,7 +157,7 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
     Parameters
     ----------
     num_layers : int
-        Number of layers for the variant of densenet. Options are 121, 161, 169, 201.
+        Number of layers for the variant of densenet_y. Options are 121, 161, 169, 201.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     ctx : Context, default CPU
@@ -193,7 +165,7 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
     root : str, default $MXNET_HOME/models
         Location for keeping the model parameters.
     """
-    init_features, growth_rate, bn_size, reduction, block_config = densenet_spec[num_layers]
+    init_features, growth_rate, bn_size, reduction, block_config = densenet_y_spec[num_layers]
     num_transition_blocks = len(block_config) - 1
     if opt_init_features is not None:
         init_features = opt_init_features
@@ -207,14 +179,14 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
         assert len(reduction) == num_transition_blocks, "need one or three values for --reduction"
     else:
         reduction = [reduction] * num_transition_blocks
-    net = DenseNet(bits, bits_a, init_features, growth_rate, block_config, reduction, bn_size, **kwargs)
+    net = DenseNetY(bits, bits_a, init_features, growth_rate, block_config, reduction, bn_size, **kwargs)
     if pretrained:
         raise ValueError("No pretrained model exists, yet.")
         # from ..model_store import get_model_file
-        # net.load_parameters(get_model_file('densenet%d'%(num_layers), root=root), ctx=ctx)
+        # net.load_parameters(get_model_file('densenet_y%d'%(num_layers), root=root), ctx=ctx)
     return net
 
-def densenet13(**kwargs):
+def densenet13_y(**kwargs):
     r"""Densenet-BC 13-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -227,9 +199,9 @@ def densenet13(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_densenet(13, **kwargs)
+    return get_densenet_y(13, **kwargs)
 
-def densenet21(**kwargs):
+def densenet21_y(**kwargs):
     r"""Densenet-BC 21-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -242,9 +214,9 @@ def densenet21(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_densenet(21, **kwargs)
+    return get_densenet_y(21, **kwargs)
 
-def densenet37(**kwargs):
+def densenet37_y(**kwargs):
     r"""Densenet-BC 37-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -257,9 +229,9 @@ def densenet37(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_densenet(37, **kwargs)
+    return get_densenet_y(37, **kwargs)
 
-def densenet69(**kwargs):
+def densenet69_y(**kwargs):
     r"""Densenet-BC 69-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -272,64 +244,4 @@ def densenet69(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_densenet(69, **kwargs)
-
-def densenet121(**kwargs):
-    r"""Densenet-BC 121-layer model from the
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
-
-    Parameters
-    ----------
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    ctx : Context, default CPU
-        The context in which to load the pretrained weights.
-    root : str, default '$MXNET_HOME/models'
-        Location for keeping the model parameters.
-    """
-    return get_densenet(121, **kwargs)
-
-def densenet161(**kwargs):
-    r"""Densenet-BC 161-layer model from the
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
-
-    Parameters
-    ----------
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    ctx : Context, default CPU
-        The context in which to load the pretrained weights.
-    root : str, default '$MXNET_HOME/models'
-        Location for keeping the model parameters.
-    """
-    return get_densenet(161, **kwargs)
-
-def densenet169(**kwargs):
-    r"""Densenet-BC 169-layer model from the
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
-
-    Parameters
-    ----------
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    ctx : Context, default CPU
-        The context in which to load the pretrained weights.
-    root : str, default '$MXNET_HOME/models'
-        Location for keeping the model parameters.
-    """
-    return get_densenet(169, **kwargs)
-
-def densenet201(**kwargs):
-    r"""Densenet-BC 201-layer model from the
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
-
-    Parameters
-    ----------
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    ctx : Context, default CPU
-        The context in which to load the pretrained weights.
-    root : str, default '$MXNET_HOME/models'
-        Location for keeping the model parameters.
-    """
-    return get_densenet(201, **kwargs)
+    return get_densenet_y(69, **kwargs)

@@ -78,10 +78,13 @@ from .alexnet import *
 from .binet import *
 
 from .densenet import *
+from .densenet_x import *
+from .densenet_y import *
 
 from .inception import *
 
 from .resnet import *
+from .resnet_e import *
 
 from .squeezenet import *
 
@@ -125,6 +128,11 @@ def get_model(name, **kwargs):
               'resnet50_v2': resnet50_v2,
               'resnet101_v2': resnet101_v2,
               'resnet152_v2': resnet152_v2,
+              'resnet18_e': resnet18_e,
+              'resnet34_e': resnet34_e,
+              'resnet50_e': resnet50_e,
+              'resnet101_e': resnet101_e,
+              'resnet152_e': resnet152_e,
               'vgg11': vgg11,
               'vgg13': vgg13,
               'vgg16': vgg16,
@@ -142,6 +150,14 @@ def get_model(name, **kwargs):
               'densenet161': densenet161,
               'densenet169': densenet169,
               'densenet201': densenet201,
+              'densenet13_x': densenet13_x,
+              'densenet21_x': densenet21_x,
+              'densenet37_x': densenet37_x,
+              'densenet69_x': densenet69_x,
+              'densenet13_y': densenet13_y,
+              'densenet21_y': densenet21_y,
+              'densenet37_y': densenet37_y,
+              'densenet69_y': densenet69_y,
               'squeezenet1.0': squeezenet1_0,
               'squeezenet1.1': squeezenet1_1,
               'inceptionv3': inception_v3,
