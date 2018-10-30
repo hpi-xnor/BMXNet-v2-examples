@@ -19,7 +19,7 @@
 # pylint: disable= arguments-differ
 """DenseNetY, implemented in Gluon."""
 __all__ = ['DenseNetY',
-           'densenet_y13',  'densenet_y21',  'densenet_y37',  'densenet_y69']
+           'densenet13_y',  'densenet21_y',  'densenet37_y',  'densenet69_y']
 
 import os
 
@@ -186,7 +186,7 @@ def get_densenet_y(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
         # net.load_parameters(get_model_file('densenet_y%d'%(num_layers), root=root), ctx=ctx)
     return net
 
-def densenet_y13(**kwargs):
+def densenet13_y(**kwargs):
     r"""Densenet-BC 13-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -201,7 +201,7 @@ def densenet_y13(**kwargs):
     """
     return get_densenet_y(13, **kwargs)
 
-def densenet_y21(**kwargs):
+def densenet21_y(**kwargs):
     r"""Densenet-BC 21-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -216,7 +216,7 @@ def densenet_y21(**kwargs):
     """
     return get_densenet_y(21, **kwargs)
 
-def densenet_y37(**kwargs):
+def densenet37_y(**kwargs):
     r"""Densenet-BC 37-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -231,7 +231,7 @@ def densenet_y37(**kwargs):
     """
     return get_densenet_y(37, **kwargs)
 
-def densenet_y69(**kwargs):
+def densenet69_y(**kwargs):
     r"""Densenet-BC 69-layer model inspired by
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
