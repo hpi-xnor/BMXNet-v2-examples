@@ -117,3 +117,6 @@ model
 
 # tensorboard
 *.out.tfevents.*
+
+# network plots
+plot.*
