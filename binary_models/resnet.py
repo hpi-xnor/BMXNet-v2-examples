@@ -23,7 +23,6 @@ from __future__ import division
 __all__ = ['ResNetV1', 'ResNetV2',
            'BasicBlockV1', 'BasicBlockV2',
            'BottleneckV1', 'BottleneckV2',
-           'BasicBlockExp',
            'resnet18_v1', 'resnet34_v1', 'resnet50_v1', 'resnet101_v1', 'resnet152_v1',
            'resnet18_v2', 'resnet34_v2', 'resnet50_v2', 'resnet101_v2', 'resnet152_v2',
            'get_resnet']
@@ -458,76 +457,6 @@ class ResNetV2(HybridBlock):
         return x
 
 
-# Blocks
-class BasicBlockExp(HybridBlock):
-    r"""BasicBlock V1 from `"Deep Residual Learning for Image Recognition"
-    <http://arxiv.org/abs/1512.03385>`_ paper.
-    This is used for ResNet V1 for 18, 34 layers.
-
-    Parameters
-    ----------
-    channels : int
-        Number of output channels.
-    stride : int
-        Stride size.
-    downsample : bool, default False
-        Whether to downsample the input.
-    in_channels : int, default 0
-        Number of input channels. Default is 0, to infer from the graph.
-    """
-
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 **kwargs):
-        super(BasicBlockExp, self).__init__(**kwargs)
-        self.bits = bits
-        self.bits_a = bits_a
-        self.channels = channels
-        self.stride = stride
-        self.in_channels = in_channels
-        self.clip_threshold = clip_threshold
-
-        self.body = nn.HybridSequential(prefix='')
-        self.downsample = None
-        if downsample:
-            self.downsample = nn.HybridSequential(prefix='')
-        self.modifier = modifier
-
-        if 'scaled' in self.modifier:
-            self._init_scaled()
-        else:
-            self._init_standard()
-
-    def _init_standard(self):
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-        self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
-        self.body.add(nn.BatchNorm())
-
-        if self.downsample is not None:
-            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-            self.downsample.add(
-                nn.QConv2D(self.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
-                           prefix="sc_qconv_"))
-            self.downsample.add(nn.BatchNorm())
-
-    def _init_scaled(self):
-        self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
-                                       in_channels=self.in_channels, clip_threshold=self.clip_threshold))
-        self.body.add(nn.BatchNorm())
-
-        if self.downsample is not None:
-            self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                                 in_channels=self.in_channels, clip_threshold=self.clip_threshold))
-            self.downsample.add(nn.BatchNorm())
-
-    def hybrid_forward(self, F, x):
-        residual = x
-        if self.downsample:
-            residual = self.downsample(x)
-        x = self.body(x)
-        # usually activation here, but it is now at start of each unit
-        return residual + x
-
-
 # Specification
 resnet_spec = {18: ('basic_block', [2, 2, 2, 2], [64, 64, 128, 256, 512]),
                34: ('basic_block', [3, 4, 6, 3], [64, 64, 128, 256, 512]),
@@ -565,8 +494,8 @@ def get_resnet(version, num_layers, pretrained=False, ctx=cpu(),
         "Invalid number of layers: %d. Options are %s"%(
             num_layers, str(resnet_spec.keys()))
     block_type, layers, channels = resnet_spec[num_layers]
-    assert version >= 1 and version <= 3, \
-        "Invalid resnet version: %d. Options are 1, 2, and 3."%version
+    assert version >= 1 and version <= 2, \
+        "Invalid resnet version: %d. Options are 1 and 2."%version
     resnet_class = resnet_net_versions[version-1]
     block_class = resnet_block_versions[version-1][block_type]
     net = resnet_class(block_class, layers, channels, **kwargs)
