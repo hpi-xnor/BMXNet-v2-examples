@@ -157,10 +157,8 @@ def get_model(opt, ctx):
             net.initialize(mx.init.Normal(), ctx=ctx)
         else:
             net.initialize(get_initializer(), ctx=ctx)
-    try:
+    if opt.mode != 'symbolic':
         net.cast(opt.dtype)
-    except AttributeError as e:
-        logger.info('Network cast to given dtype failed. This is not supported in symbolic mode!')
     return net, arg_params, aux_params
 
 
