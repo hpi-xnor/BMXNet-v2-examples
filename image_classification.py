@@ -432,27 +432,31 @@ def train_symbolic(opt, ctx):
     train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
 
     # dummy forward pass with gluon to initialize binary layers
-    with autograd.record():
-        data, label = get_dummy_data(train_data, context[0])
-        output = net(data)
+    if not opt.start_epoch > 0:
+        with autograd.record():
+            data, label = get_dummy_data(opt, context[0])
+            output = net(data)
 
-    data = mx.sym.var('data')
-    out = net(data)
-    softmax = mx.sym.SoftmaxOutput(out, name='softmax')
-    mod = mx.mod.Module(softmax, context=ctx)
-    optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
-    model_path = get_model_path(opt)
-    eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
+        data = mx.sym.var('data')
+        out = net(data)
+        softmax = mx.sym.SoftmaxOutput(out, name='softmax')
+        mod = mx.mod.Module(softmax, context=ctx)
 
-    if opt.plot_network is not None:
-        with open('{}.txt'.format(opt.plot_network), 'w') as f:
-            with redirect_stdout(f):
-                mx.viz.print_summary(out, shape={"data": get_shape(dataset)}, quantized_bitwidth=opt.bits)
+        if opt.plot_network is not None:
+            with open('{}.txt'.format(opt.plot_network), 'w') as f:
+                with redirect_stdout(f):
+                    mx.viz.print_summary(out, shape={"data": get_shape(dataset)}, quantized_bitwidth=opt.bits)
         a = mx.viz.plot_network(out, shape={"data": get_shape(dataset)})
         try:
             a.render('{}.gv'.format(opt.plot_network))
         except ExecutableNotFound as e:
             logger.error(e)
+    else:
+        mod = mx.mod.Module(context=ctx, symbol=net)
+
+    optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
+    model_path = get_model_path(opt)
+    eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
 
     if opt.dry_run:
         return
