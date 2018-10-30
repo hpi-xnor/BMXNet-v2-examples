@@ -50,6 +50,8 @@ def get_parser(training=True):
         train = parser.add_argument_group('Training', 'parameters for training')
         train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=3,
                             help='augmentation level, default is 1, possible values are: 1, 2, 3.')
+        train.add_argument('--dry-run', action='store_true',
+                            help='do not train, only do other things, e.g. output args and plot network')
         train.add_argument('--epochs', type=int, default=120,
                             help='number of training epochs.')
         train.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="gaussian",
@@ -167,6 +169,9 @@ def get_initializer():
 
 def get_data_iters(opt, num_workers=1, rank=0):
     """get dataset iterators"""
+    if opt.dry_run:
+        return None, None
+
     if opt.dataset == 'mnist':
         train_data, val_data = get_mnist_iterator(opt.batch_size, (1, 28, 28),
                                                   num_parts=num_workers, part_index=rank)
@@ -223,8 +228,9 @@ def save_checkpoint(epoch, top1, best_acc):
         logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
 
 
-def get_dummy_data(data_iter, ctx):
-    shapes = ((1,) + data_iter.provide_data[0].shape[1:], (1,) + data_iter.provide_label[0].shape[1:])
+def get_dummy_data(opt, ctx):
+    data_shape = get_shape(opt.dataset)
+    shapes = ((1,) + data_shape[1:], (1,))
     return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
 
 
@@ -246,13 +252,8 @@ def train(opt, ctx):
 
     # dummy forward pass to initialize binary layers
     with autograd.record():
-        data, label = get_dummy_data(train_data, ctx[0])
+        data, label = get_dummy_data(opt, ctx[0])
         output = net(data)
-
-    summary_writer = None
-    if opt.write_summary:
-        from mxboard import SummaryWriter
-        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
 
     # set batch norm wd to zero
     params = net.collect_params('.*batchnorm.*')
@@ -271,8 +272,14 @@ def train(opt, ctx):
         except ExecutableNotFound as e:
             logger.error(e)
 
+    if opt.dry_run:
+        return
+
+    summary_writer = None
     global_step = 0
-    if summary_writer:
+    if opt.write_summary:
+        from mxboard import SummaryWriter
+        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
         params = net.collect_params(".*weight|.*bias")
         for name, param in params.items():
             summary_writer.add_histogram(tag=name, values=param.data(ctx[0]),
@@ -357,7 +364,7 @@ def train(opt, ctx):
         net.hybridize()
         # dummy forward pass to save model
         with autograd.record():
-            data, label = get_dummy_data(train_data, ctx[0])
+            data, label = get_dummy_data(opt, ctx[0])
             output = net(data)
     net.export(os.path.join(opt.prefix, "image-classifier-{}bit".format(opt.bits)), epoch=0)
 
@@ -372,7 +379,7 @@ def main():
 
         # dummy forward pass with gluon to initialize binary layers
         with autograd.record():
-            data, label = get_dummy_data(train_data, context[0])
+            data, label = get_dummy_data(opt, context[0])
             output = net(data)
 
         data = mx.sym.var('data')
