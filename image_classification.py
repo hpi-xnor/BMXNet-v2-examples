@@ -120,7 +120,7 @@ def get_model(opt, ctx):
     if opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    if opt.model.startswith('resnet'):
+    if opt.model.startswith('resnet') or opt.model.startswith('binet'):
         if opt.dataset == "cifar10":
             kwargs['thumbnail'] = True
         kwargs['clip_threshold'] = opt.clip_threshold
