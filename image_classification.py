@@ -152,13 +152,15 @@ def get_model(opt, ctx):
 
     if opt.resume:
         net.load_parameters(opt.resume)
-        skip_init = True
     elif not opt.use_pretrained and not skip_init:
         if opt.model in ['alexnet']:
             net.initialize(mx.init.Normal(), ctx=ctx)
         else:
             net.initialize(get_initializer(), ctx=ctx)
-    net.cast(opt.dtype)
+    try:
+        net.cast(opt.dtype)
+    except AttributeError as e:
+        logger.info('Network cast to given dtype failed. This is not supported in symbolic mode!')
     return net, arg_params, aux_params
 
 
@@ -425,7 +427,7 @@ def train(opt, ctx):
     net.export(os.path.join(opt.prefix, "image-classifier-{}bit".format(opt.bits)), epoch=0)
 
 
-def train_symbolic(opt):
+def train_symbolic(opt, ctx):
     kv = mx.kv.create(opt.kvstore)
     train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
 
@@ -434,15 +436,10 @@ def train_symbolic(opt):
         data, label = get_dummy_data(train_data, context[0])
         output = net(data)
 
-    summary_writer = None
-    if opt.write_summary:
-        from mxboard import SummaryWriter
-        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
-
     data = mx.sym.var('data')
     out = net(data)
     softmax = mx.sym.SoftmaxOutput(out, name='softmax')
-    mod = mx.mod.Module(softmax, context=context if num_gpus > 0 else [mx.cpu()])
+    mod = mx.mod.Module(softmax, context=ctx)
     optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
     model_path = get_model_path(opt)
     eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
@@ -456,6 +453,14 @@ def train_symbolic(opt):
             a.render('{}.gv'.format(opt.plot_network))
         except ExecutableNotFound as e:
             logger.error(e)
+
+    if opt.dry_run:
+        return
+
+    summary_writer = None
+    if opt.write_summary:
+        from mxboard import SummaryWriter
+        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
 
     batch_end_cbs = [
         mx.callback.Speedometer(batch_size, max(1, opt.log_interval))
@@ -498,7 +503,7 @@ def main():
         profiler.set_config(profile_all=True, aggregate_stats=True)
         profiler.set_state('run')
     if opt.mode == 'symbolic':
-        train_symbolic(opt)
+        train_symbolic(opt, context)
     else:
         if opt.mode == 'hybrid':
             net.hybridize()
