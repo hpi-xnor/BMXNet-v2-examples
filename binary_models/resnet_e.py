@@ -49,7 +49,7 @@ class ScaledBinaryConv(HybridBlock):
     """
 
     def __init__(self, bits, bits_a, channels, kernel_size, stride, padding=0, in_channels=0, clip_threshold=1.0,
-                 prefix=None, **kwargs):
+                 prefix=None, use_approx_sign=False, **kwargs):
         super(ScaledBinaryConv, self).__init__(**kwargs)
         self.qact = nn.QActivation(bits=bits_a, gradient_cancel_threshold=clip_threshold)
         self.qconv = nn.QConv2D(channels, bits=bits, kernel_size=kernel_size, strides=stride, padding=padding,
@@ -399,12 +399,16 @@ class ResNetEParameters(ModelParameters):
     def _map_opt_to_kwargs(self, opt, kwargs):
         kwargs['use_fp'] = opt.fp_downsample_sc
         kwargs['use_pooling'] = opt.pool_downsample_sc
+        if opt.use_approx_sign:
+            nn.binary_act_function.set_function("approx_sign")
 
     def _add_arguments(self, parser):
         parser.add_argument('--fp-downsample-sc', action="store_true",
                             help='whether to use full precision for the 1x1 convolution at the downsample shortcut')
         parser.add_argument('--pool-downsample-sc', action="store_true",
                             help='whether to use average pooling instead of stride 2 at the downsample shortcut')
+        parser.add_argument('--use-approx-sign', action="store_true",
+                            help='whether to use approx_sign instead of det_sign')
 
 
 # Specification
