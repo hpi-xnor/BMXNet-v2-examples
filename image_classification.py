@@ -257,15 +257,14 @@ def get_dummy_data(opt, ctx):
     return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
 
 
-def _get_lr_scheduler(opt, kv=None):
+def _get_lr_scheduler(opt):
     if 'lr_factor' not in opt or opt.lr_factor >= 1:
         return opt.lr, None
     global lr_steps, batch_size
     lr, lr_factor = opt.lr, opt.lr_factor
     start_epoch = opt.start_epoch
     num_examples = get_num_examples(opt.dataset)
-    n_workers = 1 if kv == None else kv.num_workers
-    its_per_epoch = math.ceil((num_examples // n_workers) / batch_size)
+    its_per_epoch = math.ceil(num_examples / batch_size)
 
     # move forward to start epoch
     for s in lr_steps:
@@ -277,14 +276,14 @@ def _get_lr_scheduler(opt, kv=None):
     steps = [its_per_epoch * (epoch - start_epoch)
              for epoch in lr_steps if epoch - start_epoch > 0]
     if steps:
-        return (lr, lr_scheduler.MultiFactorScheduler(step=steps, factor=lr_factor))
+        return lr, lr_scheduler.MultiFactorScheduler(step=steps, factor=lr_factor)
     else:
-        return (lr, None)
+        return lr, None
 
 
-def get_optimizer(opt, kv=None, with_scheduler=False):
+def get_optimizer(opt, with_scheduler=False):
     # learning rate
-    lr, lr_scheduler = _get_lr_scheduler(opt, kv)
+    lr, lr_scheduler = _get_lr_scheduler(opt)
     params = {
         'learning_rate': lr,
         'wd': opt.wd,
@@ -303,7 +302,7 @@ def train(opt, ctx):
     kv = mx.kv.create(opt.kvstore)
     train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
     net.collect_params().reset_ctx(ctx)
-    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt, kv), kvstore = kv)
+    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # dummy forward pass to initialize binary layers
@@ -452,7 +451,7 @@ def train_symbolic(opt, ctx):
     else:
         mod = mx.mod.Module(context=ctx, symbol=net)
 
-    optimizer, optimizer_params = get_optimizer(opt, kv, with_scheduler=True)
+    optimizer, optimizer_params = get_optimizer(opt, with_scheduler=True)
     model_path = get_model_path(opt)
     eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
 

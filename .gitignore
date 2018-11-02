@@ -120,3 +120,4 @@ model
 
 # network plots
 plot.*
+plots/*
