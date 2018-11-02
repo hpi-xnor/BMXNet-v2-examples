@@ -20,9 +20,13 @@
 """ResNets, implemented in Gluon."""
 from __future__ import division
 
-__all__ = ['ResNetExp',
-           'BasicBlockExp',
-           'resnet18_e', 'resnet34_e', 'resnet50_e', 'resnet101_e', 'resnet152_e'
+from binary_models.model_parameters import ModelParameters
+
+__all__ = ['ResNetE1', 'ResNetE2',
+           'BasicBlockE1', 'BasicBlockE2',
+           'resnet18_e1', 'resnet34_e1', 'resnet50_e1', 'resnet101_e1', 'resnet152_e1',
+           'resnet18_e2', 'resnet34_e2', 'resnet50_e2', 'resnet101_e2', 'resnet152_e2',
+           'ResNetEParameters'
            ]
 
 import os
@@ -67,8 +71,8 @@ class ScaledBinaryConv(HybridBlock):
 
 
 # Blocks
-class BasicBlockV1(HybridBlock):
-    r"""BasicBlock V1 from `"Deep Residual Learning for Image Recognition"
+class BasicBlockE1(HybridBlock):
+    r"""BasicBlock V1 similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
     This is used for ResNet V1 for 18, 34 layers.
 
@@ -85,14 +89,16 @@ class BasicBlockV1(HybridBlock):
     """
 
     def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 **kwargs):
-        super(BasicBlockV1, self).__init__(**kwargs)
+                 use_fp=False, use_pooling=False, **kwargs):
+        super(BasicBlockE1, self).__init__(**kwargs)
         self.bits = bits
         self.bits_a = bits_a
         self.channels = channels
         self.stride = stride
         self.in_channels = in_channels
         self.clip_threshold = clip_threshold
+        self.use_fp = use_fp
+        self.use_pooling = use_pooling
 
         self.body = nn.HybridSequential(prefix='')
         self.downsample = None
@@ -109,28 +115,37 @@ class BasicBlockV1(HybridBlock):
         self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
         self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
         self.body.add(nn.BatchNorm())
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-        self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
-        self.body.add(nn.BatchNorm())
 
         if self.downsample is not None:
-            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-            self.downsample.add(
-                nn.QConv2D(self.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
-                           prefix="sc_qconv_"))
+            conv_stride = self.stride
+            if self.use_pooling:
+                conv_stride = 1
+                self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
+            if self.use_fp:
+                self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
+                                              in_channels=self.in_channels, prefix="sc_conv_"))
+            else:
+                self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
+                self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=conv_stride,
+                                               in_channels=self.in_channels, prefix="sc_qconv_"))
             self.downsample.add(nn.BatchNorm())
 
     def _init_scaled(self):
         self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
                                        in_channels=self.in_channels, clip_threshold=self.clip_threshold))
         self.body.add(nn.BatchNorm())
-        self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, 1, padding=1,
-                                       in_channels=self.channels, clip_threshold=self.clip_threshold))
-        self.body.add(nn.BatchNorm())
 
         if self.downsample is not None:
-            self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                                 in_channels=self.in_channels, clip_threshold=self.clip_threshold))
+            conv_stride = self.stride
+            if self.use_pooling:
+                conv_stride = 1
+                self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
+            if self.use_fp:
+                self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
+                                              in_channels=self.in_channels, prefix="sc_conv_"))
+            else:
+                self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, conv_stride, padding=0,
+                                                     in_channels=self.in_channels, clip_threshold=self.clip_threshold))
             self.downsample.add(nn.BatchNorm())
 
     def hybrid_forward(self, F, x):
@@ -142,7 +157,7 @@ class BasicBlockV1(HybridBlock):
         return residual + x
 
 
-class BasicBlockV2(HybridBlock):
+class BasicBlockE2(HybridBlock):
     r"""BasicBlock V2 from
     `"Identity Mappings in Deep Residual Networks"
     <https://arxiv.org/abs/1603.05027>`_ paper.
@@ -159,14 +174,17 @@ class BasicBlockV2(HybridBlock):
     in_channels : int, default 0
         Number of input channels. Default is 0, to infer from the graph.
     """
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[], **kwargs):
-        super(BasicBlockV2, self).__init__(**kwargs)
+    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
+                 use_fp=False, use_pooling=False, **kwargs):
+        super(BasicBlockE2, self).__init__(**kwargs)
         self.bits = bits
         self.bits_a = bits_a
         self.channels = channels
         self.stride = stride
         self.in_channels = in_channels
         self.clip_threshold = clip_threshold
+        self.use_fp = use_fp
+        self.use_pooling = use_pooling
 
         self.bn = nn.BatchNorm()
         self.body = nn.HybridSequential(prefix='')
@@ -183,27 +201,36 @@ class BasicBlockV2(HybridBlock):
     def _init_standard(self):
         self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
         self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
-        self.body.add(nn.BatchNorm())
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-        self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
 
         if self.downsample is not None:
-            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-            self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=self.stride,
-                                           in_channels=self.in_channels, prefix="sc_qconv_"))
+            conv_stride = self.stride
+            if self.use_pooling:
+                conv_stride = 1
+                self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
+            if self.use_fp:
+                self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
+                                              in_channels=self.in_channels, prefix="sc_conv_"))
+            else:
+                self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
+                self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=conv_stride,
+                                               in_channels=self.in_channels, prefix="sc_qconv_"))
 
     def _init_scaled(self):
         self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
                                        in_channels=self.in_channels, clip_threshold=self.clip_threshold))
-        self.body.add(nn.BatchNorm())
-        self.body.add(
-            ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, 1, padding=1, in_channels=self.channels,
-                             clip_threshold=self.clip_threshold))
 
         if self.downsample is not None:
-            self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                                 in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                                 prefix="sc_qconv_"))
+            conv_stride = self.stride
+            if self.use_pooling:
+                conv_stride = 1
+                self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
+            if self.use_fp:
+                self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
+                                              in_channels=self.in_channels, prefix="sc_conv_"))
+            else:
+                self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, conv_stride, padding=0,
+                                                     in_channels=self.in_channels, clip_threshold=self.clip_threshold,
+                                                     prefix="sc_qconv_"))
 
     def hybrid_forward(self, F, x):
         bn = self.bn(x)
@@ -216,7 +243,7 @@ class BasicBlockV2(HybridBlock):
 
 
 # Nets
-class ResNetV1(HybridBlock):
+class ResNetE1(HybridBlock):
     r"""ResNet V1 model from
     `"Deep Residual Learning for Image Recognition"
     <http://arxiv.org/abs/1512.03385>`_ paper.
@@ -224,7 +251,7 @@ class ResNetV1(HybridBlock):
     Parameters
     ----------
     block : HybridBlock
-        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
+        Class for the residual block. Options are BasicBlockE1, BottleneckV1.
     layers : list of int
         Numbers of layers in each block
     channels : list of int
@@ -235,8 +262,8 @@ class ResNetV1(HybridBlock):
         Enable thumbnail.
     """
     def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], **kwargs):
-        super(ResNetV1, self).__init__(**kwargs)
+                 clip_threshold=1.0, modifier=[], use_fp=False, use_pooling=False, **kwargs):
+        super(ResNetE1, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
         assert bits is not None and bits_a is not None, "number of bits needs to be set"
         self.bits = bits
@@ -259,8 +286,8 @@ class ResNetV1(HybridBlock):
 
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
-            self.features.add(self._make_layer(block, num_layer, channels[i+1],
-                                               stride, i+1, in_channels=channels[i], modifier=modifier))
+            self.features.add(self._make_layer(block, num_layer, channels[i+1], stride, i+1, in_channels=channels[i],
+                                               modifier=modifier, use_fp=use_fp, use_pooling=use_pooling))
 
         # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
         # but we need the relu, since we do not have activition in blocks
@@ -274,6 +301,8 @@ class ResNetV1(HybridBlock):
 
     def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
         layer = nn.HybridSequential(prefix='stage%d_'%stage_index)
+        # this tricks adds shortcut connections between original resnet blocks
+        layers = layers*2
         with layer.name_scope():
             layer.add(block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
                             clip_threshold=self.clip_threshold, prefix='', **kwargs))
@@ -288,7 +317,7 @@ class ResNetV1(HybridBlock):
         return x
 
 
-class ResNetV2(HybridBlock):
+class ResNetE2(HybridBlock):
     r"""ResNet V2 model from
     `"Identity Mappings in Deep Residual Networks"
     <https://arxiv.org/abs/1603.05027>`_ paper.
@@ -296,7 +325,7 @@ class ResNetV2(HybridBlock):
     Parameters
     ----------
     block : HybridBlock
-        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
+        Class for the residual block. Options are BasicBlockE1, BottleneckV1.
     layers : list of int
         Numbers of layers in each block
     channels : list of int
@@ -307,8 +336,8 @@ class ResNetV2(HybridBlock):
         Enable thumbnail.
     """
     def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], **kwargs):
-        super(ResNetV2, self).__init__(**kwargs)
+                 clip_threshold=1.0, modifier=[], use_fp=False, use_pooling=False, **kwargs):
+        super(ResNetE2, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
         assert bits is not None and bits_a is not None, "number of bits needs to be set"
         self.bits = bits
@@ -330,8 +359,8 @@ class ResNetV2(HybridBlock):
         in_channels = channels[0]
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
-            self.features.add(self._make_layer(block, num_layer, channels[i+1],
-                                               stride, i+1, in_channels=in_channels))
+            self.features.add(self._make_layer(block, num_layer, channels[i+1], stride, i+1, in_channels=in_channels,
+                                               modifier=modifier, use_fp=use_fp, use_pooling=use_pooling))
             in_channels = channels[i+1]
 
         # fix_gamma=False missing ?
@@ -344,149 +373,7 @@ class ResNetV2(HybridBlock):
 
     def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
         layer = nn.HybridSequential(prefix='stage%d_'%stage_index)
-        with layer.name_scope():
-            layer.add(block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                            clip_threshold=self.clip_threshold, prefix='', **kwargs))
-            for _ in range(layers-1):
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
-                                clip_threshold=self.clip_threshold, prefix='', **kwargs))
-        return layer
-
-    def hybrid_forward(self, F, x):
-        x = self.features(x)
-        x = self.output(x)
-        return x
-
-
-# Blocks
-class BasicBlockExp(HybridBlock):
-    r"""BasicBlock V1 from `"Deep Residual Learning for Image Recognition"
-    <http://arxiv.org/abs/1512.03385>`_ paper.
-    This is used for ResNet V1 for 18, 34 layers.
-
-    Parameters
-    ----------
-    channels : int
-        Number of output channels.
-    stride : int
-        Stride size.
-    downsample : bool, default False
-        Whether to downsample the input.
-    in_channels : int, default 0
-        Number of input channels. Default is 0, to infer from the graph.
-    """
-
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 **kwargs):
-        super(BasicBlockExp, self).__init__(**kwargs)
-        self.bits = bits
-        self.bits_a = bits_a
-        self.channels = channels
-        self.stride = stride
-        self.in_channels = in_channels
-        self.clip_threshold = clip_threshold
-
-        self.body = nn.HybridSequential(prefix='')
-        self.downsample = None
-        if downsample:
-            self.downsample = nn.HybridSequential(prefix='')
-        self.modifier = modifier
-
-        if 'scaled' in self.modifier:
-            self._init_scaled()
-        else:
-            self._init_standard()
-
-    def _init_standard(self):
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-        self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
-        self.body.add(nn.BatchNorm())
-
-        if self.downsample is not None:
-            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-            self.downsample.add(
-                nn.QConv2D(self.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
-                           prefix="sc_qconv_"))
-            self.downsample.add(nn.BatchNorm())
-
-    def _init_scaled(self):
-        self.body.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
-                                       in_channels=self.in_channels, clip_threshold=self.clip_threshold))
-        self.body.add(nn.BatchNorm())
-
-        if self.downsample is not None:
-            self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                                 in_channels=self.in_channels, clip_threshold=self.clip_threshold))
-            self.downsample.add(nn.BatchNorm())
-
-    def hybrid_forward(self, F, x):
-        residual = x
-        if self.downsample:
-            residual = self.downsample(x)
-        x = self.body(x)
-        # usually activation here, but it is now at start of each unit
-        return residual + x
-
-
-# Nets
-class ResNetExp(HybridBlock):
-    r"""ResNet V1 model from
-    `"Deep Residual Learning for Image Recognition"
-    <http://arxiv.org/abs/1512.03385>`_ paper.
-
-    Parameters
-    ----------
-    block : HybridBlock
-        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
-    layers : list of int
-        Numbers of layers in each block
-    channels : list of int
-        Numbers of channels in each block. Length should be one larger than layers list.
-    classes : int, default 1000
-        Number of classification classes.
-    thumbnail : bool, default False
-        Enable thumbnail.
-    """
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], **kwargs):
-        super(ResNetExp, self).__init__(**kwargs)
-        assert len(layers) == len(channels) - 1
-        assert bits is not None and bits_a is not None, "number of bits needs to be set"
-        self.bits = bits
-        self.bits_a = bits_a
-        self.clip_threshold = clip_threshold
-
-        self.features = nn.HybridSequential(prefix='')
-        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-        if thumbnail:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
-                                        use_bias=False))
-            # MXNet has a batch norm here, binary resnet performs better without
-            # self.features.add(nn.BatchNorm())
-        else:
-            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
-            self.features.add(nn.BatchNorm())
-            self.features.add(nn.Activation('relu'))
-            self.features.add(nn.MaxPool2D(3, 2, 1))
-            self.features.add(nn.BatchNorm())
-
-        for i, num_layer in enumerate(layers):
-            stride = 1 if i == 0 else 2
-            self.features.add(self._make_layer(block, num_layer, channels[i+1],
-                                               stride, i+1, in_channels=channels[i], modifier=modifier))
-
-        # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
-        # but we need the relu, since we do not have activition in blocks
-        # self.features.add(nn.BatchNorm())
-        self.features.add(nn.Activation('relu'))
-
-        self.features.add(nn.GlobalAvgPool2D())
-        self.features.add(nn.Flatten())
-
-        self.output = nn.Dense(classes, in_units=channels[-1])
-
-    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-        layer = nn.HybridSequential(prefix='stage%d_'%stage_index)
+        # this tricks adds shortcut connections between original resnet blocks
         layers = layers*2
         with layer.name_scope():
             layer.add(block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
@@ -502,20 +389,38 @@ class ResNetExp(HybridBlock):
         return x
 
 
+class ResNetEParameters(ModelParameters):
+    def __init__(self):
+        super(ResNetEParameters, self).__init__('ResNetE')
+
+    def _is_it_this_model(self, opt):
+        return opt.model.startswith('resnet') and "_e" in opt.model
+
+    def _map_opt_to_kwargs(self, opt, kwargs):
+        kwargs['use_fp'] = opt.fp_downsample_sc
+        kwargs['use_pooling'] = opt.pool_downsample_sc
+
+    def _add_arguments(self, parser):
+        parser.add_argument('--fp-downsample-sc', action="store_true",
+                            help='whether to use full precision for the 1x1 convolution at the downsample shortcut')
+        parser.add_argument('--pool-downsample-sc', action="store_true",
+                            help='whether to use average pooling instead of stride 2 at the downsample shortcut')
+
+
 # Specification
 resnet_spec = {18: ([2, 2, 2, 2], [64, 64, 128, 256, 512]),
                34: ([3, 4, 6, 3], [64, 64, 128, 256, 512]),
                50: ([3, 4, 6, 3], [64, 256, 512, 1024, 2048]),
                101: ([3, 4, 23, 3], [64, 256, 512, 1024, 2048]),
                152: ([3, 8, 36, 3], [64, 256, 512, 1024, 2048])}
-
-resnet_block_versions = [{'basic_block': BasicBlockExp, 'bottle_neck': BasicBlockExp}]
+resnet_net_versions = [(ResNetE1, BasicBlockE1),
+                       (ResNetE2, BasicBlockE2)]
 
 
 # Constructor
-def get_resnet(num_layers, pretrained=False, ctx=cpu(),
+def get_resnet_e(version, num_layers, pretrained=False, ctx=cpu(),
                root=os.path.join(base.data_dir(), 'models'), **kwargs):
-    r"""ResNet V1 model from `"Deep Residual Learning for Image Recognition"
+    r"""ResNet V1 model similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
     ResNet V2 model from `"Identity Mappings in Deep Residual Networks"
     <https://arxiv.org/abs/1603.05027>`_ paper.
@@ -537,7 +442,10 @@ def get_resnet(num_layers, pretrained=False, ctx=cpu(),
         "Invalid number of layers: %d. Options are %s"%(
             num_layers, str(resnet_spec.keys()))
     layers, channels = resnet_spec[num_layers]
-    net = ResNetExp(BasicBlockExp, layers, channels, **kwargs)
+    assert version >= 1 and version <= 2, \
+        "Invalid resnet version: %d. Options are 1 and 2." % version
+    resnet_class, block_class = resnet_net_versions[version-1]
+    net = resnet_class(block_class, layers, channels, **kwargs)
     if pretrained:
         raise ValueError("No pretrained model exists, yet.")
         # from ..model_store import get_model_file
@@ -545,8 +453,8 @@ def get_resnet(num_layers, pretrained=False, ctx=cpu(),
         #                                    root=root), ctx=ctx)
     return net
 
-def resnet18_e(**kwargs):
-    r"""ResNet-18 V1 model from `"Deep Residual Learning for Image Recognition"
+def resnet18_e1(**kwargs):
+    r"""ResNet-18 V1 model similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
 
     Parameters
@@ -558,10 +466,10 @@ def resnet18_e(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(18, **kwargs)
+    return get_resnet_e(1, 18, **kwargs)
 
-def resnet34_e(**kwargs):
-    r"""ResNet-34 V1 model from `"Deep Residual Learning for Image Recognition"
+def resnet34_e1(**kwargs):
+    r"""ResNet-34 V1 model similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
 
     Parameters
@@ -573,10 +481,10 @@ def resnet34_e(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(34, **kwargs)
+    return get_resnet_e(1, 34, **kwargs)
 
-def resnet50_e(**kwargs):
-    r"""ResNet-50 V1 model from `"Deep Residual Learning for Image Recognition"
+def resnet50_e1(**kwargs):
+    r"""ResNet-50 V1 model similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
 
     Parameters
@@ -588,10 +496,10 @@ def resnet50_e(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(50, **kwargs)
+    return get_resnet_e(1, 50, **kwargs)
 
-def resnet101_e(**kwargs):
-    r"""ResNet-101 V1 model from `"Deep Residual Learning for Image Recognition"
+def resnet101_e1(**kwargs):
+    r"""ResNet-101 V1 model similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
 
     Parameters
@@ -603,10 +511,10 @@ def resnet101_e(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(101, **kwargs)
+    return get_resnet_e(1, 101, **kwargs)
 
-def resnet152_e(**kwargs):
-    r"""ResNet-152 V1 model from `"Deep Residual Learning for Image Recognition"
+def resnet152_e1(**kwargs):
+    r"""ResNet-152 V1 model similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
 
     Parameters
@@ -618,5 +526,79 @@ def resnet152_e(**kwargs):
     root : str, default '$MXNET_HOME/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(152, **kwargs)
+    return get_resnet_e(1, 152, **kwargs)
 
+def resnet18_e2(**kwargs):
+    r"""ResNet-18 V2 model similar to Bi-real network
+    <http://arxiv.org/abs/1512.03385>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_e(2, 18, **kwargs)
+
+def resnet34_e2(**kwargs):
+    r"""ResNet-34 V2 model similar to Bi-real network
+    <http://arxiv.org/abs/1512.03385>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_e(2, 34, **kwargs)
+
+def resnet50_e2(**kwargs):
+    r"""ResNet-50 V2 model similar to Bi-real network
+    <http://arxiv.org/abs/1512.03385>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_e(2, 50, **kwargs)
+
+def resnet101_e2(**kwargs):
+    r"""ResNet-101 V2 model similar to Bi-real network
+    <http://arxiv.org/abs/1512.03385>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_e(2, 101, **kwargs)
+
+def resnet152_e2(**kwargs):
+    r"""ResNet-152 V2 model similar to Bi-real network
+    <http://arxiv.org/abs/1512.03385>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_e(2, 152, **kwargs)
