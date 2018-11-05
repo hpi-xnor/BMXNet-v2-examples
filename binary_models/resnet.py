@@ -253,202 +253,204 @@ class BasicBlockV2(HybridBlock):
         x = self.body(bn)
         return residual + x
 
-    class BottleneckV2(HybridBlock):
-        r"""Bottleneck V2 from
-        `"Identity Mappings in Deep Residual Networks"
-        <https://arxiv.org/abs/1603.05027>`_ paper.
-        This is used for ResNet V2 for 50, 101, 152 layers.
 
-        Parameters
-        ----------
-        channels : int
-            Number of output channels.
-        stride : int
-            Stride size.
-        downsample : bool, default False
-            Whether to downsample the input.
-        in_channels : int, default 0
-            Number of input channels. Default is 0, to infer from the graph.
-        """
+class BottleneckV2(HybridBlock):
+    r"""Bottleneck V2 from
+    `"Identity Mappings in Deep Residual Networks"
+    <https://arxiv.org/abs/1603.05027>`_ paper.
+    This is used for ResNet V2 for 50, 101, 152 layers.
 
-        def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
-            super(BottleneckV2, self).__init__(**kwargs)
-            self.bn1 = nn.BatchNorm()
-            self.conv1 = nn.QConv2D(channels // 4, kernel_size=1, strides=1, use_bias=False)
-            self.bn2 = nn.BatchNorm()
-            self.conv2 = _conv3x3(channels // 4, stride, channels // 4)
-            self.bn3 = nn.BatchNorm()
-            self.conv3 = nn.QConv2D(channels, kernel_size=1, strides=1, use_bias=False)
-            if downsample:
-                self.downsample = nn.QConv2D(channels, 1, stride, use_bias=False,
-                                             in_channels=in_channels)
-            else:
-                self.downsample = None
+    Parameters
+    ----------
+    channels : int
+        Number of output channels.
+    stride : int
+        Stride size.
+    downsample : bool, default False
+        Whether to downsample the input.
+    in_channels : int, default 0
+        Number of input channels. Default is 0, to infer from the graph.
+    """
 
-        def hybrid_forward(self, F, x):
-            residual = x
-            x = self.bn1(x)
-            x = F.Activation(x, act_type='relu')
-            if self.downsample:
-                residual = self.downsample(x)
-            x = self.conv1(x)
+    def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
+        super(BottleneckV2, self).__init__(**kwargs)
+        self.bn1 = nn.BatchNorm()
+        self.conv1 = nn.QConv2D(channels // 4, kernel_size=1, strides=1, use_bias=False)
+        self.bn2 = nn.BatchNorm()
+        self.conv2 = _conv3x3(channels // 4, stride, channels // 4)
+        self.bn3 = nn.BatchNorm()
+        self.conv3 = nn.QConv2D(channels, kernel_size=1, strides=1, use_bias=False)
+        if downsample:
+            self.downsample = nn.QConv2D(channels, 1, stride, use_bias=False,
+                                         in_channels=in_channels)
+        else:
+            self.downsample = None
 
-            x = self.bn2(x)
-            x = F.Activation(x, act_type='relu')
-            x = self.conv2(x)
+    def hybrid_forward(self, F, x):
+        residual = x
+        x = self.bn1(x)
+        x = F.Activation(x, act_type='relu')
+        if self.downsample:
+            residual = self.downsample(x)
+        x = self.conv1(x)
 
-            x = self.bn3(x)
-            x = F.Activation(x, act_type='relu')
-            x = self.conv3(x)
+        x = self.bn2(x)
+        x = F.Activation(x, act_type='relu')
+        x = self.conv2(x)
 
-            return x + residual
+        x = self.bn3(x)
+        x = F.Activation(x, act_type='relu')
+        x = self.conv3(x)
+
+        return x + residual
 
     # Nets
-    class ResNetV1(HybridBlock):
-        r"""ResNet V1 model from
-        `"Deep Residual Learning for Image Recognition"
-        <http://arxiv.org/abs/1512.03385>`_ paper.
+class ResNetV1(HybridBlock):
+    r"""ResNet V1 model from
+    `"Deep Residual Learning for Image Recognition"
+    <http://arxiv.org/abs/1512.03385>`_ paper.
 
-        Parameters
-        ----------
-        block : HybridBlock
-            Class for the residual block. Options are BasicBlockV1, BottleneckV1.
-        layers : list of int
-            Numbers of layers in each block
-        channels : list of int
-            Numbers of channels in each block. Length should be one larger than layers list.
-        classes : int, default 1000
-            Number of classification classes.
-        thumbnail : bool, default False
-            Enable thumbnail.
-        """
+    Parameters
+    ----------
+    block : HybridBlock
+        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
+    layers : list of int
+        Numbers of layers in each block
+    channels : list of int
+        Numbers of channels in each block. Length should be one larger than layers list.
+    classes : int, default 1000
+        Number of classification classes.
+    thumbnail : bool, default False
+        Enable thumbnail.
+    """
 
-        def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                     clip_threshold=1.0, modifier=[], activation_method=None, **kwargs):
-            super(ResNetV1, self).__init__(**kwargs)
-            assert len(layers) == len(channels) - 1
-            assert bits is not None and bits_a is not None, "number of bits needs to be set"
-            self.bits = bits
-            self.bits_a = bits_a
-            self.clip_threshold = clip_threshold
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
+                 clip_threshold=1.0, modifier=[], activation_method=None, **kwargs):
+        super(ResNetV1, self).__init__(**kwargs)
+        assert len(layers) == len(channels) - 1
+        assert bits is not None and bits_a is not None, "number of bits needs to be set"
+        self.bits = bits
+        self.bits_a = bits_a
+        self.clip_threshold = clip_threshold
 
-            self.features = nn.HybridSequential(prefix='')
-            self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-            if thumbnail:
-                self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
-                                            use_bias=False))
-                # MXNet has a batch norm here, binary resnet performs better without
-                # self.features.add(nn.BatchNorm())
-            else:
-                self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
-                self.features.add(nn.BatchNorm())
-                self.features.add(nn.Activation('relu'))
-                self.features.add(nn.MaxPool2D(3, 2, 1))
-                self.features.add(nn.BatchNorm())
-
-            for i, num_layer in enumerate(layers):
-                stride = 1 if i == 0 else 2
-                self.features.add(self._make_layer(block, num_layer, channels[i + 1],
-                                                   stride, i + 1, in_channels=channels[i], modifier=modifier,
-                                                   activation_method=activation_method))
-
-            # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
-            # but we need the relu, since we do not have activition in blocks
+        self.features = nn.HybridSequential(prefix='')
+        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
+        if thumbnail:
+            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
+                                        use_bias=False))
+            # MXNet has a batch norm here, binary resnet performs better without
             # self.features.add(nn.BatchNorm())
+        else:
+            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
+            self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
+            self.features.add(nn.MaxPool2D(3, 2, 1))
+            self.features.add(nn.BatchNorm())
 
-            self.features.add(nn.GlobalAvgPool2D())
-            self.features.add(nn.Flatten())
+        for i, num_layer in enumerate(layers):
+            stride = 1 if i == 0 else 2
+            self.features.add(self._make_layer(block, num_layer, channels[i + 1],
+                                               stride, i + 1, in_channels=channels[i], modifier=modifier,
+                                               activation_method=activation_method))
 
-            self.output = nn.Dense(classes, in_units=channels[-1])
+        # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
+        # but we need the relu, since we do not have activition in blocks
+        # self.features.add(nn.BatchNorm())
+        self.features.add(nn.Activation('relu'))
 
-        def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-            layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
-            with layer.name_scope():
-                layer.add(
-                    block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                          clip_threshold=self.clip_threshold, prefix='', **kwargs))
-                for _ in range(layers - 1):
-                    layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
-                                    clip_threshold=self.clip_threshold, prefix='', **kwargs))
-            return layer
+        self.features.add(nn.GlobalAvgPool2D())
+        self.features.add(nn.Flatten())
 
-        def hybrid_forward(self, F, x):
-            x = self.features(x)
-            x = self.output(x)
-            return x
+        self.output = nn.Dense(classes, in_units=channels[-1])
 
-    class ResNetV2(HybridBlock):
-        r"""ResNet V2 model from
-        `"Identity Mappings in Deep Residual Networks"
-        <https://arxiv.org/abs/1603.05027>`_ paper.
+    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
+        layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
+        with layer.name_scope():
+            layer.add(
+                block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
+                      clip_threshold=self.clip_threshold, prefix='', **kwargs))
+            for _ in range(layers - 1):
+                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
+                                clip_threshold=self.clip_threshold, prefix='', **kwargs))
+        return layer
 
-        Parameters
-        ----------
-        block : HybridBlock
-            Class for the residual block. Options are BasicBlockV1, BottleneckV1.
-        layers : list of int
-            Numbers of layers in each block
-        channels : list of int
-            Numbers of channels in each block. Length should be one larger than layers list.
-        classes : int, default 1000
-            Number of classification classes.
-        thumbnail : bool, default False
-            Enable thumbnail.
-        """
+    def hybrid_forward(self, F, x):
+        x = self.features(x)
+        x = self.output(x)
+        return x
 
-        def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                     clip_threshold=1.0, modifier=[], activation_method=None, **kwargs):
-            super(ResNetV2, self).__init__(**kwargs)
-            assert len(layers) == len(channels) - 1
-            assert bits is not None and bits_a is not None, "number of bits needs to be set"
-            self.bits = bits
-            self.bits_a = bits_a
-            self.clip_threshold = clip_threshold
 
-            self.features = nn.HybridSequential(prefix='')
-            # self.features.add(nn.BatchNorm(scale=False, center=False))
-            self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-            if thumbnail:
-                self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
-            else:
-                self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
-                # fix_gamma=False missing ?
-                self.features.add(nn.BatchNorm())
-                self.features.add(nn.Activation('relu'))
-                self.features.add(nn.MaxPool2D(3, 2, 1))
+class ResNetV2(HybridBlock):
+    r"""ResNet V2 model from
+    `"Identity Mappings in Deep Residual Networks"
+    <https://arxiv.org/abs/1603.05027>`_ paper.
 
-            in_channels = channels[0]
-            for i, num_layer in enumerate(layers):
-                stride = 1 if i == 0 else 2
-                self.features.add(self._make_layer(block, num_layer, channels[i + 1],
-                                                   stride, i + 1, in_channels=in_channels,
-                                                   activation_method=activation_method))
-                in_channels = channels[i + 1]
+    Parameters
+    ----------
+    block : HybridBlock
+        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
+    layers : list of int
+        Numbers of layers in each block
+    channels : list of int
+        Numbers of channels in each block. Length should be one larger than layers list.
+    classes : int, default 1000
+        Number of classification classes.
+    thumbnail : bool, default False
+        Enable thumbnail.
+    """
 
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
+                 clip_threshold=1.0, modifier=[], activation_method=None, **kwargs):
+        super(ResNetV2, self).__init__(**kwargs)
+        assert len(layers) == len(channels) - 1
+        assert bits is not None and bits_a is not None, "number of bits needs to be set"
+        self.bits = bits
+        self.bits_a = bits_a
+        self.clip_threshold = clip_threshold
+
+        self.features = nn.HybridSequential(prefix='')
+        # self.features.add(nn.BatchNorm(scale=False, center=False))
+        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
+        if thumbnail:
+            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
+        else:
+            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
             # fix_gamma=False missing ?
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
-            self.features.add(nn.GlobalAvgPool2D())
-            self.features.add(nn.Flatten())
+            self.features.add(nn.MaxPool2D(3, 2, 1))
 
-            self.output = nn.Dense(classes, in_units=in_channels)
+        in_channels = channels[0]
+        for i, num_layer in enumerate(layers):
+            stride = 1 if i == 0 else 2
+            self.features.add(self._make_layer(block, num_layer, channels[i + 1],
+                                               stride, i + 1, in_channels=in_channels,
+                                               activation_method=activation_method))
+            in_channels = channels[i + 1]
 
-        def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-            layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
-            with layer.name_scope():
-                layer.add(
-                    block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                          clip_threshold=self.clip_threshold, prefix='', **kwargs))
-                for _ in range(layers - 1):
-                    layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
-                                    clip_threshold=self.clip_threshold, prefix='', **kwargs))
-            return layer
+        # fix_gamma=False missing ?
+        self.features.add(nn.BatchNorm())
+        self.features.add(nn.Activation('relu'))
+        self.features.add(nn.GlobalAvgPool2D())
+        self.features.add(nn.Flatten())
 
-        def hybrid_forward(self, F, x):
-            x = self.features(x)
-            x = self.output(x)
-            return x
+        self.output = nn.Dense(classes, in_units=in_channels)
+
+    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
+        layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
+        with layer.name_scope():
+            layer.add(
+                block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
+                      clip_threshold=self.clip_threshold, prefix='', **kwargs))
+            for _ in range(layers - 1):
+                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
+                                clip_threshold=self.clip_threshold, prefix='', **kwargs))
+        return layer
+
+    def hybrid_forward(self, F, x):
+        x = self.features(x)
+        x = self.output(x)
+        return x
 
 
 # Specification
