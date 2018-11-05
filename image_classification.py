@@ -40,10 +40,12 @@ def get_parser(training=True):
                        help='number of weight bits')
     model.add_argument('--bits-a', type=int, default=1,
                        help='number of bits for activation')
+    model.add_argument('--activation-method', type=str, default='det_sign',
+                       help='choose activation in QActivation layer: approx_sign, relu, clip, leakyclip, det_sign, sign_approx_sign, round, dorefa')
     model.add_argument('--clip-threshold', type=float, default=1.0,
                        help='clipping threshold, default is 1.0.')
     model.add_argument('--model', type=str, required=True,
-                        help='type of model to use. see vision_model for options.')
+                       help='type of model to use. see vision_model for options.')
     model.add_argument('--use-pretrained', action='store_true',
                        help='enable using pretrained model from gluon.')
     if training:
@@ -148,7 +150,7 @@ def get_model(opt, ctx):
         net, arg_params, aux_params = _load_model(opt)
         skip_init = True
     else:
-        net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
+        net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, activation_method=opt.activation_method, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)
