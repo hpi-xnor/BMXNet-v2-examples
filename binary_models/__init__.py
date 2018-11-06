@@ -85,6 +85,7 @@ from .inception import *
 
 from .resnet import *
 from .resnet_e import *
+from .resnet_c import *
 
 from .squeezenet import *
 
@@ -94,7 +95,7 @@ from .mobilenet import *
 
 
 def get_model_parameters():
-    return [DenseNetParameters(), VGGParameters()]
+    return [DenseNetParameters(), VGGParameters(), ResNetCParameters(), ResNetEParameters()]
 
 
 def get_model(name, **kwargs):
@@ -128,11 +129,21 @@ def get_model(name, **kwargs):
               'resnet50_v2': resnet50_v2,
               'resnet101_v2': resnet101_v2,
               'resnet152_v2': resnet152_v2,
-              'resnet18_e': resnet18_e,
-              'resnet34_e': resnet34_e,
-              'resnet50_e': resnet50_e,
-              'resnet101_e': resnet101_e,
-              'resnet152_e': resnet152_e,
+              'resnet18_e1': resnet18_e1,
+              'resnet34_e1': resnet34_e1,
+              'resnet50_e1': resnet50_e1,
+              'resnet101_e1': resnet101_e1,
+              'resnet152_e1': resnet152_e1,
+              'resnet18_e2': resnet18_e2,
+              'resnet34_e2': resnet34_e2,
+              'resnet50_e2': resnet50_e2,
+              'resnet101_e2': resnet101_e2,
+              'resnet152_e2': resnet152_e2,
+              'resnet18_c': resnet18_c,
+              'resnet34_c': resnet34_c,
+              'resnet50_c': resnet50_c,
+              'resnet101_c': resnet101_c,
+              'resnet152_c': resnet152_c,
               'vgg11': vgg11,
               'vgg13': vgg13,
               'vgg16': vgg16,

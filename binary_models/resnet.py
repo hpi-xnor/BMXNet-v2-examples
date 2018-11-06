@@ -430,7 +430,7 @@ class ResNetV2(HybridBlock):
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
             self.features.add(self._make_layer(block, num_layer, channels[i+1],
-                                               stride, i+1, in_channels=in_channels))
+                                               stride, i+1, in_channels=in_channels, modifier=modifier))
             in_channels = channels[i+1]
 
         # fix_gamma=False missing ?
