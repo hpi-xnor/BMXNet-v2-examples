@@ -150,9 +150,12 @@ def get_model(opt, ctx):
         net, arg_params, aux_params = _load_model(opt)
         skip_init = True
     else:
-        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, method=opt.activation_method,
-                                              grad_cancel=opt.clip_threshold):
-            net = binary_models.get_model(opt.model, **kwargs)
+        model_name, *modifier = opt.model.split('-')
+        scaled = 'scaled' in modifier
+        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, scaled=scaled,
+                                              grad_cancel=opt.clip_threshold, activation=opt.activation_method,
+                                              weight_quantization=opt.weight_quantization):
+            net = binary_models.get_model(model_name, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)

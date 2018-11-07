@@ -41,20 +41,6 @@ def _conv3x3(bits, channels, stride, in_channels):
                       strides=stride, padding=1, in_channels=in_channels)
 
 
-class ActivatedConvolutionFactory:
-    def __init__(self):
-        self.ConvBlock = nn.BinaryConvolution
-
-    def __call__(self, *args, **kwargs):
-        return self.ConvBlock(*args, **kwargs)
-
-    def set_block(self, conv_block_cls):
-        self.ConvBlock = conv_block_cls
-
-
-activated_conv = ActivatedConvolutionFactory()
-
-
 # Blocks
 class BasicBlockV1(HybridBlock):
     r"""BasicBlock V1 from `"Deep Residual Learning for Image Recognition"
@@ -86,15 +72,15 @@ class BasicBlockV1(HybridBlock):
         self._init()
 
 
-    def _init_(self):
+    def _init(self):
         self.body.add(
-            activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1, in_channels=self.in_channels))
+            nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1, in_channels=self.in_channels))
         self.body.add(nn.BatchNorm())
-        self.body.add(activated_conv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
+        self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
         self.body.add(nn.BatchNorm())
 
         if self.downsample is not None:
-            self.downsample.add(activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
+            self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
                                                in_channels=self.in_channels))
             self.downsample.add(nn.BatchNorm())
 
@@ -188,14 +174,14 @@ class BasicBlockV2(HybridBlock):
         self._init()
 
     def _init(self):
-        self.body.add(activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
+        self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
                                      in_channels=self.in_channels))
         self.body.add(nn.BatchNorm())
         self.body.add(
             nn.ScaledBinaryConv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
 
         if self.downsample is not None:
-            self.downsample.add(activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
+            self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
                                                in_channels=self.in_channels, prefix="sc_qconv_"))
 
     def hybrid_forward(self, F, x):
@@ -381,10 +367,9 @@ class ResNetV2(HybridBlock):
         layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
         with layer.name_scope():
             layer.add(
-                block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                      prefix='', **kwargs))
+                block(channels, stride, channels != in_channels, in_channels=in_channels, prefix='', **kwargs))
             for _ in range(layers - 1):
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels, prefix='', **kwargs))
+                layer.add(block(channels, 1, False, in_channels=channels, prefix='', **kwargs))
         return layer
 
     def hybrid_forward(self, F, x):
@@ -407,7 +392,7 @@ resnet_block_versions = [{'basic_block': BasicBlockV1, 'bottle_neck': Bottleneck
 
 # Constructor
 def get_resnet(version, num_layers, pretrained=False, ctx=cpu(),
-               root=os.path.join(base.data_dir(), 'models'), modifier=[], **kwargs):
+               root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""ResNet V1 model from `"Deep Residual Learning for Image Recognition"
     <http://arxiv.org/abs/1512.03385>`_ paper.
     ResNet V2 model from `"Identity Mappings in Deep Residual Networks"
@@ -434,10 +419,6 @@ def get_resnet(version, num_layers, pretrained=False, ctx=cpu(),
         "Invalid resnet version: %d. Options are 1 and 2."%version
     resnet_class = resnet_net_versions[version-1]
     block_class = resnet_block_versions[version-1][block_type]
-    if 'scaled' in modifier:
-        activated_conv.set_block(nn.ScaledBinaryConv)
-    else:
-        activated_conv.set_block(nn.BinaryConvolution)
     net = resnet_class(block_class, layers, channels, **kwargs)
     if pretrained:
         raise ValueError("No pretrained model exists, yet.")

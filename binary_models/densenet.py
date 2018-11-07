@@ -34,38 +34,32 @@ from .model_parameters import ModelParameters
 
 
 # Helpers
-def _add_qconv_to(seq, channel, bits=1, bits_a=1, k=3, s=1, p=0, scaled=False):
-    if scaled:
-        seq.add(nn.ScaledBinaryConv(bits, bits_a, channel, kernel_size=k, stride=s, padding=p))
-    else:
-        seq.add(nn.QActivation(bits=bits_a))
-        seq.add(nn.QConv2D(channel, bits=bits, kernel_size=k, strides=s, padding=p))
 
 
-def _make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, stage_index, scaled=False):
+def _make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, stage_index):
     out = nn.HybridSequential(prefix='stage%d_' % stage_index)
     with out.name_scope():
         for _ in range(num_layers):
-            out.add(_make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout, scaled=scaled))
+            out.add(_make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout))
     return out
 
 
-def _make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout, scaled=False):
+def _make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout):
     new_features = nn.HybridSequential(prefix='')
     if bn_size == 0:
         # no bottleneck
         new_features.add(nn.BatchNorm())
-        _add_qconv_to(new_features, growth_rate, bits, bits_a, k=3, p=1, scaled=scaled)
+        new_features.add(nn.activated_conv(growth_rate, kernel_size=3, padding=1, bits=bits, bits_a=bits_a))
         if dropout:
             new_features.add(nn.Dropout(dropout))
     else:
         # bottleneck design
         new_features.add(nn.BatchNorm())
-        _add_qconv_to(new_features, bn_size * growth_rate, bits, bits_a, k=1, scaled=scaled)
+        new_features.add(nn.activated_conv(bn_size * growth_rate, kernel_size=1, bits=bits, bits_a=bits_a))
         if dropout:
             new_features.add(nn.Dropout(dropout))
         new_features.add(nn.BatchNorm())
-        _add_qconv_to(new_features, growth_rate, bits, bits_a, k=3, p=1, scaled=scaled)
+        new_features.add(nn.activated_conv(growth_rate, kernel_size=3, padding=1, bits=bits, bits_a=bits_a))
         if dropout:
             new_features.add(nn.Dropout(dropout))
 
@@ -84,8 +78,7 @@ def _make_transition(bits, bits_a, num_output_features, use_fp=False, use_relu=F
             out.add(nn.Activation("relu"))
         out.add(nn.Conv2D(num_output_features, kernel_size=1, use_bias=False))
     else:
-        out.add(nn.QActivation(bits=bits_a))
-        out.add(nn.QConv2D(num_output_features, bits=bits, kernel_size=1))
+        out.add(nn.activated_conv(num_output_features, kernel_size=1, bits=bits, bits_a=bits_a))
     out.add(nn.AvgPool2D(pool_size=2, strides=2))
     return out
 
@@ -113,12 +106,9 @@ class DenseNet(HybridBlock):
     """
 
     def __init__(self, bits, bits_a, num_init_features, growth_rate, block_config, reduction, bn_size,
-                 modifier=[], thumbnail=False, dropout=0, classes=1000, use_fp=False, use_relu=False, **kwargs):
-        assert len(modifier) == 0
-
+                 thumbnail=False, dropout=0, classes=1000, use_fp=False, use_relu=False, **kwargs):
         super(DenseNet, self).__init__(**kwargs)
         with self.name_scope():
-            scaled = 'scaled' in modifier
             self.features = nn.HybridSequential(prefix='')
             if thumbnail:
                 self.features.add(nn.Conv2D(num_init_features, kernel_size=3, strides=1, padding=1, in_channels=0,
@@ -133,7 +123,7 @@ class DenseNet(HybridBlock):
             num_features = num_init_features
             for i, num_layers in enumerate(block_config):
                 self.features.add(
-                    _make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, i + 1, scaled=scaled))
+                    _make_dense_block(bits, bits_a, num_layers, bn_size, growth_rate, dropout, i + 1))
                 num_features = num_features + num_layers * growth_rate
                 if i != len(block_config) - 1:
                     features_after_transition = num_features // reduction[i]
@@ -195,7 +185,7 @@ class DenseNetParameters(ModelParameters):
 
 
 # Constructor
-def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=1, bits_a=1,
+def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=None, bits_a=None,
                  opt_init_features=None, opt_growth_rate=None, opt_reduction=None,
                  root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""Densenet-BC model from the
