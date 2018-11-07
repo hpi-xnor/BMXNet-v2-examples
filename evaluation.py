@@ -36,11 +36,11 @@ parser.add_argument('--params', type=str, required=True,
                     help='the .params with the model weights')
 parser.add_argument('--verbose', action="store_true",
                     help='prints information about the model before evaluating')
-opt = parser.parse_args()
+opt, unknown_args = parser.parse_known_args()
 
-# opt.use_pretrained = False
-# opt.clip_threshold = 1.0
 opt.augmentation_level = 0
+opt.start_epoch = 0
+opt.dry_run = False
 
 
 def convert_size(size_bytes):
@@ -99,7 +99,7 @@ if __name__ == '__main__':
         pass
     else:
         opt.resume = opt.params
-        net = get_model(opt, ctx)
+        net, _, _ = get_model(opt, ctx)
         net.collect_params().reset_ctx(ctx)
         prepare_net(opt, net, True)
 

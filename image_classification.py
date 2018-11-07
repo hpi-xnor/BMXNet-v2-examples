@@ -538,6 +538,8 @@ if __name__ == '__main__':
     model_name = opt.model
     batch_size, dataset, classes = opt.batch_size, opt.dataset, get_num_classes(opt.dataset)
     context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
+    if opt.dry_run:
+        context = [mx.cpu()]
     num_gpus = len(context)
     batch_size *= max(1, num_gpus)
     lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
