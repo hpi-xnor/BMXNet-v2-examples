@@ -34,13 +34,25 @@ from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
 from mxnet import base
 
-from .model_parameters import ModelParameters
-
 
 # Helpers
 def _conv3x3(bits, channels, stride, in_channels):
     return nn.QConv2D(channels, bits=bits, kernel_size=3,
                       strides=stride, padding=1, in_channels=in_channels)
+
+
+class ActivatedConvolutionFactory:
+    def __init__(self):
+        self.ConvBlock = nn.BinaryConvolution
+
+    def __call__(self, *args, **kwargs):
+        return self.ConvBlock(*args, **kwargs)
+
+    def set_block(self, conv_block_cls):
+        self.ConvBlock = conv_block_cls
+
+
+activated_conv = ActivatedConvolutionFactory()
 
 
 # Blocks
@@ -61,60 +73,29 @@ class BasicBlockV1(HybridBlock):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 activation_method=None, **kwargs):
+    def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
         super(BasicBlockV1, self).__init__(**kwargs)
-        self.bits = bits
-        self.bits_a = bits_a
         self.channels = channels
         self.stride = stride
         self.in_channels = in_channels
-        self.clip_threshold = clip_threshold
-        self.activation_method = activation_method
 
         self.body = nn.HybridSequential(prefix='')
         self.downsample = None
         if downsample:
             self.downsample = nn.HybridSequential(prefix='')
-        self.modifier = modifier
+        self._init()
 
-        if 'scaled' in self.modifier:
-            self._init_scaled()
-        else:
-            self._init_standard()
 
-    def _init_standard(self):
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold,
-                                     method=self.activation_method))
-        self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
+    def _init_(self):
+        self.body.add(
+            activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1, in_channels=self.in_channels))
         self.body.add(nn.BatchNorm())
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold,
-                                     method=self.activation_method))
-        self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
+        self.body.add(activated_conv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
         self.body.add(nn.BatchNorm())
 
         if self.downsample is not None:
-            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold,
-                                               method=self.activation_method))
-            self.downsample.add(
-                nn.QConv2D(self.channels, kernel_size=1, strides=self.stride, in_channels=self.in_channels,
-                           prefix="sc_qconv_"))
-            self.downsample.add(nn.BatchNorm())
-
-    def _init_scaled(self):
-        self.body.add(nn.ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
-                                          in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                          activation_method=self.activation_method))
-        self.body.add(nn.BatchNorm())
-        self.body.add(nn.ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, 1, padding=1,
-                                          in_channels=self.channels, clip_threshold=self.clip_threshold,
-                                          activation_method=self.activation_method))
-        self.body.add(nn.BatchNorm())
-
-        if self.downsample is not None:
-            self.downsample.add(nn.ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                                    in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                                    activation_method=self.activation_method))
+            self.downsample.add(activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
+                                               in_channels=self.in_channels))
             self.downsample.add(nn.BatchNorm())
 
     def hybrid_forward(self, F, x):
@@ -192,57 +173,30 @@ class BasicBlockV2(HybridBlock):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 activation_method=None, **kwargs):
+    def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
         super(BasicBlockV2, self).__init__(**kwargs)
-        self.bits = bits
-        self.bits_a = bits_a
         self.channels = channels
         self.stride = stride
         self.in_channels = in_channels
-        self.clip_threshold = clip_threshold
-        self.activation_method = activation_method
 
         self.bn = nn.BatchNorm()
         self.body = nn.HybridSequential(prefix='')
         self.downsample = None
         if downsample:
             self.downsample = nn.HybridSequential(prefix='')
-        self.modifier = modifier
 
-        if 'scaled' in self.modifier:
-            self._init_scaled()
-        else:
-            self._init_standard()
+        self._init()
 
-    def _init_standard(self):
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold,
-                                     method=self.activation_method))
-        self.body.add(_conv3x3(self.bits, self.channels, self.stride, self.in_channels))
-        self.body.add(nn.BatchNorm())
-        self.body.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold,
-                                     method=self.activation_method))
-        self.body.add(_conv3x3(self.bits, self.channels, 1, self.channels))
-
-        if self.downsample is not None:
-            self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold,
-                                               method=self.activation_method))
-            self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=self.stride,
-                                           in_channels=self.in_channels, prefix="sc_qconv_"))
-
-    def _init_scaled(self):
-        self.body.add(nn.ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, self.stride, padding=1,
-                                          in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                          activation_method=self.activation_method))
+    def _init(self):
+        self.body.add(activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
+                                     in_channels=self.in_channels))
         self.body.add(nn.BatchNorm())
         self.body.add(
-            nn.ScaledBinaryConv(self.bits, self.bits_a, self.channels, 3, 1, padding=1, in_channels=self.channels,
-                                clip_threshold=self.clip_threshold, activation_method=self.activation_method))
+            nn.ScaledBinaryConv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
 
         if self.downsample is not None:
-            self.downsample.add(nn.ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, self.stride, padding=0,
-                                                    in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                                    activation_method=self.activation_method, prefix = "sc_qconv_"))
+            self.downsample.add(activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
+                                               in_channels=self.in_channels, prefix="sc_qconv_"))
 
     def hybrid_forward(self, F, x):
         bn = self.bn(x)
@@ -304,7 +258,8 @@ class BottleneckV2(HybridBlock):
 
         return x + residual
 
-    # Nets
+
+# Nets
 class ResNetV1(HybridBlock):
     r"""ResNet V1 model from
     `"Deep Residual Learning for Image Recognition"
@@ -324,14 +279,9 @@ class ResNetV1(HybridBlock):
         Enable thumbnail.
     """
 
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], activation_method=None, **kwargs):
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, **kwargs):
         super(ResNetV1, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
-        assert bits is not None and bits_a is not None, "number of bits needs to be set"
-        self.bits = bits
-        self.bits_a = bits_a
-        self.clip_threshold = clip_threshold
 
         self.features = nn.HybridSequential(prefix='')
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
@@ -349,9 +299,8 @@ class ResNetV1(HybridBlock):
 
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
-            self.features.add(self._make_layer(block, num_layer, channels[i + 1],
-                                               stride, i + 1, in_channels=channels[i], modifier=modifier,
-                                               activation_method=activation_method))
+            self.features.add(
+                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=channels[i]))
 
         # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
         # but we need the relu, since we do not have activition in blocks
@@ -367,11 +316,9 @@ class ResNetV1(HybridBlock):
         layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
         with layer.name_scope():
             layer.add(
-                block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                      clip_threshold=self.clip_threshold, prefix='', **kwargs))
+                block(channels, stride, channels != in_channels, in_channels=in_channels, prefix='', **kwargs))
             for _ in range(layers - 1):
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
-                                clip_threshold=self.clip_threshold, prefix='', **kwargs))
+                layer.add(block(channels, 1, False, in_channels=channels, prefix='', **kwargs))
         return layer
 
     def hybrid_forward(self, F, x):
@@ -399,14 +346,9 @@ class ResNetV2(HybridBlock):
         Enable thumbnail.
     """
 
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], activation_method=None, **kwargs):
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, **kwargs):
         super(ResNetV2, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
-        assert bits is not None and bits_a is not None, "number of bits needs to be set"
-        self.bits = bits
-        self.bits_a = bits_a
-        self.clip_threshold = clip_threshold
 
         self.features = nn.HybridSequential(prefix='')
         # self.features.add(nn.BatchNorm(scale=False, center=False))
@@ -424,8 +366,7 @@ class ResNetV2(HybridBlock):
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
             self.features.add(
-                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels,
-                                 modifier=modifier, activation_method=activation_method))
+                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels))
             in_channels = channels[i + 1]
 
         # fix_gamma=False missing ?
@@ -441,10 +382,9 @@ class ResNetV2(HybridBlock):
         with layer.name_scope():
             layer.add(
                 block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                      clip_threshold=self.clip_threshold, prefix='', **kwargs))
+                      prefix='', **kwargs))
             for _ in range(layers - 1):
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
-                                clip_threshold=self.clip_threshold, prefix='', **kwargs))
+                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels, prefix='', **kwargs))
         return layer
 
     def hybrid_forward(self, F, x):
@@ -467,7 +407,7 @@ resnet_block_versions = [{'basic_block': BasicBlockV1, 'bottle_neck': Bottleneck
 
 # Constructor
 def get_resnet(version, num_layers, pretrained=False, ctx=cpu(),
-               root=os.path.join(base.data_dir(), 'models'), **kwargs):
+               root=os.path.join(base.data_dir(), 'models'), modifier=[], **kwargs):
     r"""ResNet V1 model from `"Deep Residual Learning for Image Recognition"
     <http://arxiv.org/abs/1512.03385>`_ paper.
     ResNet V2 model from `"Identity Mappings in Deep Residual Networks"
@@ -494,6 +434,10 @@ def get_resnet(version, num_layers, pretrained=False, ctx=cpu(),
         "Invalid resnet version: %d. Options are 1 and 2."%version
     resnet_class = resnet_net_versions[version-1]
     block_class = resnet_block_versions[version-1][block_type]
+    if 'scaled' in modifier:
+        activated_conv.set_block(nn.ScaledBinaryConv)
+    else:
+        activated_conv.set_block(nn.BinaryConvolution)
     net = resnet_class(block_class, layers, channels, **kwargs)
     if pretrained:
         raise ValueError("No pretrained model exists, yet.")
