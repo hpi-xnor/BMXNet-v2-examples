@@ -139,7 +139,7 @@ def get_model(opt, ctx):
     if opt.model.startswith('resnet') or opt.model.startswith('binet'):
         if opt.dataset == "cifar10":
             kwargs['thumbnail'] = True
-        kwargs['clip_threshold'] = opt.clip_threshold
+        # kwargs['clip_threshold'] = opt.clip_threshold
     if opt.model.startswith('densenet') and opt.dataset == "cifar10":
         kwargs['thumbnail'] = True
 

@@ -178,9 +178,9 @@ def get_model(name, **kwargs):
               'binet34': binet34,
              }
     name = name.lower()
-    name, *modifier = name.split('-')
+    name = name
     if name not in models:
         raise ValueError(
             'Model %s is not supported. Available options are\n\t%s' % (
                 name, '\n\t'.join(sorted(models.keys()))))
-    return models[name](modifier=modifier, **kwargs)
+    return models[name](**kwargs)
