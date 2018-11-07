@@ -42,6 +42,8 @@ def get_parser(training=True):
                        help='number of bits for activation')
     model.add_argument('--activation-method', type=str, default='det_sign',
                        help='choose activation in QActivation layer: approx_sign, relu, clip, leaky_clip, det_sign, sign_approx_sign, round, dorefa')
+    model.add_argument('--weight-quantization', type=str, default='det_sign',
+                       help='choose weight quantization: det_sign, dorefa, identiy, approx_sign')
     model.add_argument('--clip-threshold', type=float, default=1.0,
                        help='clipping threshold, default is 1.0.')
     model.add_argument('--model', type=str, required=True,
