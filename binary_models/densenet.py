@@ -71,11 +71,16 @@ def _make_dense_layer(bits, bits_a, growth_rate, bn_size, dropout):
     return out
 
 
-def _make_transition(bits, bits_a, num_output_features):
+def _make_transition(bits, bits_a, num_output_features, use_fp=False, use_relu=False):
     out = nn.HybridSequential(prefix='')
     out.add(nn.BatchNorm())
-    out.add(nn.QActivation(bits=bits_a))
-    out.add(nn.QConv2D(num_output_features, bits=bits, kernel_size=1))
+    if use_fp:
+        if use_relu:
+            out.add(nn.Activation("relu"))
+        out.add(nn.Conv2D(num_output_features, kernel_size=1, use_bias=False))
+    else:
+        out.add(nn.QActivation(bits=bits_a))
+        out.add(nn.QConv2D(num_output_features, bits=bits, kernel_size=1))
     out.add(nn.AvgPool2D(pool_size=2, strides=2))
     return out
 
@@ -101,7 +106,7 @@ class DenseNet(HybridBlock):
         Number of classification classes.
     """
     def __init__(self, bits, bits_a, num_init_features, growth_rate, block_config, reduction, bn_size,
-                 modifier=[], thumbnail=False, dropout=0, classes=1000, **kwargs):
+                 modifier=[], thumbnail=False, dropout=0, classes=1000, use_fp=False, use_relu=False, **kwargs):
         assert len(modifier) == 0
 
         super(DenseNet, self).__init__(**kwargs)
@@ -112,7 +117,7 @@ class DenseNet(HybridBlock):
                                             use_bias=False))
             else:
                 self.features.add(nn.Conv2D(num_init_features, kernel_size=7,
-                                        strides=2, padding=3, use_bias=False))
+                                            strides=2, padding=3, use_bias=False))
                 self.features.add(nn.BatchNorm())
                 self.features.add(nn.Activation('relu'))
                 self.features.add(nn.MaxPool2D(pool_size=3, strides=2, padding=1))
@@ -125,7 +130,8 @@ class DenseNet(HybridBlock):
                     features_after_transition = num_features // reduction[i]
                     # make it to be multiples of 32
                     features_after_transition = int(round(features_after_transition / 32)) * 32
-                    self.features.add(_make_transition(bits, bits_a, features_after_transition))
+                    self.features.add(_make_transition(bits, bits_a, features_after_transition,
+                                                       use_fp=use_fp, use_relu=use_relu))
                     num_features = features_after_transition
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
@@ -165,14 +171,18 @@ class DenseNetParameters(ModelParameters):
         kwargs['opt_reduction'] = opt.reduction
         kwargs['opt_growth_rate'] = opt.growth_rate
         kwargs['opt_init_features'] = opt.init_features
+        kwargs['use_fp'] = opt.fp_downsample_sc
+        kwargs['use_relu'] = opt.add_relu_to_downsample
 
     def _add_arguments(self, parser):
         parser.add_argument('--reduction', type=str, default=None,
-                            help='reduce channels in transition blocks (1 or 3 values, e.g. ".5" or "1,.5,.5")')
+                            help='reduce channels in transition blocks (1 or 3 values, e.g. "1" or "1,1.5,1.5")')
         parser.add_argument('--growth-rate', type=int, default=None,
                             help='add this many features each block')
         parser.add_argument('--init-features', type=int, default=None,
                             help='start with this many filters in the first layer')
+        parser.add_argument('--add-relu-to-downsample', action="store_true",
+                            help='whether to add relu to full precision 1x1 convolution at the downsample shortcut')
 
 
 # Constructor
