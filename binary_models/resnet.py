@@ -59,7 +59,7 @@ class BasicBlockV1(HybridBlock):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
+    def __init__(self, channels, stride, downsample=False, in_channels=0, init=True, **kwargs):
         super(BasicBlockV1, self).__init__(**kwargs)
         self.channels = channels
         self.stride = stride
@@ -69,8 +69,8 @@ class BasicBlockV1(HybridBlock):
         self.downsample = None
         if downsample:
             self.downsample = nn.HybridSequential(prefix='')
-        self._init()
-
+        if init:
+            self._init()
 
     def _init(self):
         self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
@@ -159,7 +159,7 @@ class BasicBlockV2(HybridBlock):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, channels, stride, downsample=False, in_channels=0, **kwargs):
+    def __init__(self, channels, stride, downsample=False, in_channels=0, init=True, **kwargs):
         super(BasicBlockV2, self).__init__(**kwargs)
         self.channels = channels
         self.stride = stride
@@ -171,7 +171,8 @@ class BasicBlockV2(HybridBlock):
         if downsample:
             self.downsample = nn.HybridSequential(prefix='')
 
-        self._init()
+        if init:
+            self._init()
 
     def _init(self):
         self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
@@ -245,8 +246,29 @@ class BottleneckV2(HybridBlock):
         return x + residual
 
 
+class ResNet(HybridBlock):
+    def __init__(self, channels, classes, **kwargs):
+        super(ResNet, self).__init__(**kwargs)
+        self.features = nn.HybridSequential(prefix='')
+        self.output = nn.Dense(classes, in_units=channels[-1])
+
+    r"""Helper methods which are equal for both resnets"""
+    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
+        layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
+        with layer.name_scope():
+            layer.add(block(channels, stride, channels != in_channels, in_channels=in_channels, prefix='', **kwargs))
+            for _ in range(layers - 1):
+                layer.add(block(channels, 1, False, in_channels=channels, prefix='', **kwargs))
+        return layer
+
+    def hybrid_forward(self, F, x):
+        x = self.features(x)
+        x = self.output(x)
+        return x
+
+
 # Nets
-class ResNetV1(HybridBlock):
+class ResNetV1(ResNet):
     r"""ResNet V1 model from
     `"Deep Residual Learning for Image Recognition"
     <http://arxiv.org/abs/1512.03385>`_ paper.
@@ -266,10 +288,9 @@ class ResNetV1(HybridBlock):
     """
 
     def __init__(self, block, layers, channels, classes=1000, thumbnail=False, **kwargs):
-        super(ResNetV1, self).__init__(**kwargs)
+        super(ResNetV1, self).__init__(channels, classes, **kwargs)
         assert len(layers) == len(channels) - 1
 
-        self.features = nn.HybridSequential(prefix='')
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
         if thumbnail:
             self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
@@ -296,24 +317,8 @@ class ResNetV1(HybridBlock):
         self.features.add(nn.GlobalAvgPool2D())
         self.features.add(nn.Flatten())
 
-        self.output = nn.Dense(classes, in_units=channels[-1])
 
-    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-        layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
-        with layer.name_scope():
-            layer.add(
-                block(channels, stride, channels != in_channels, in_channels=in_channels, prefix='', **kwargs))
-            for _ in range(layers - 1):
-                layer.add(block(channels, 1, False, in_channels=channels, prefix='', **kwargs))
-        return layer
-
-    def hybrid_forward(self, F, x):
-        x = self.features(x)
-        x = self.output(x)
-        return x
-
-
-class ResNetV2(HybridBlock):
+class ResNetV2(ResNet):
     r"""ResNet V2 model from
     `"Identity Mappings in Deep Residual Networks"
     <https://arxiv.org/abs/1603.05027>`_ paper.
@@ -333,10 +338,9 @@ class ResNetV2(HybridBlock):
     """
 
     def __init__(self, block, layers, channels, classes=1000, thumbnail=False, **kwargs):
-        super(ResNetV2, self).__init__(**kwargs)
+        super(ResNetV2, self).__init__(channels, classes, **kwargs)
         assert len(layers) == len(channels) - 1
 
-        self.features = nn.HybridSequential(prefix='')
         # self.features.add(nn.BatchNorm(scale=False, center=False))
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
         if thumbnail:
@@ -360,22 +364,6 @@ class ResNetV2(HybridBlock):
         self.features.add(nn.Activation('relu'))
         self.features.add(nn.GlobalAvgPool2D())
         self.features.add(nn.Flatten())
-
-        self.output = nn.Dense(classes, in_units=in_channels)
-
-    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-        layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
-        with layer.name_scope():
-            layer.add(
-                block(channels, stride, channels != in_channels, in_channels=in_channels, prefix='', **kwargs))
-            for _ in range(layers - 1):
-                layer.add(block(channels, 1, False, in_channels=channels, prefix='', **kwargs))
-        return layer
-
-    def hybrid_forward(self, F, x):
-        x = self.features(x)
-        x = self.output(x)
-        return x
 
 
 # Specification
