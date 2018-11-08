@@ -36,45 +36,14 @@ from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
 from mxnet import base
 
-
-# Helpers
-def _conv3x3(bits, channels, stride, in_channels):
-    return nn.QConv2D(channels, bits=bits, kernel_size=3,
-                      strides=stride, padding=1, in_channels=in_channels)
-
-
-class ScaledBinaryConv(HybridBlock):
-    r"""ScaledBinaryConv implements scaled binarized 2D convolution,
-        introduced by XNOR-Net Paper
-    """
-
-    def __init__(self, bits, bits_a, channels, kernel_size, stride, padding=0, in_channels=0, clip_threshold=1.0,
-                 prefix=None, use_approx_sign=False, **kwargs):
-        super(ScaledBinaryConv, self).__init__(**kwargs)
-        self.qact = nn.QActivation(bits=bits_a, gradient_cancel_threshold=clip_threshold)
-        self.qconv = nn.QConv2D(channels, bits=bits, kernel_size=kernel_size, strides=stride, padding=padding,
-                                in_channels=in_channels, prefix=prefix, no_offset=True, apply_scaling=True)
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.in_channels = in_channels
-
-    def hybrid_forward(self, F, x):
-        y = self.qconv(self.qact(x))
-        A = x.abs().mean(axis=1, keepdims=True)
-        k = F.full((1, 1, self.kernel_size, self.kernel_size), 1 / self.kernel_size ** 2)
-        K = F.Convolution(A, k, bias=None, name='scaling_conv', num_filter=1,
-                          kernel=(self.kernel_size, self.kernel_size), no_bias=True, stride=(self.stride, self.stride),
-                          pad=(self.padding, self.padding), layout='NCHW')
-        K = F.stop_gradient(K)
-        return F.broadcast_mul(K, y)
+from .resnet import BasicBlockV1, BasicBlockV2
 
 
 # Blocks
-class BasicBlockE1(HybridBlock):
-    r"""BasicBlock V1 similar to Bi-real network
+class BasicBlockE1(BasicBlockV1):
+    r"""BasicBlock E1 similar to Bi-real network
     <http://arxiv.org/abs/1512.03385>`_ paper.
-    This is used for ResNet V1 for 18, 34 layers.
+    This is used for ResNet E1 for 18, 34 layers.
 
     Parameters
     ----------
@@ -88,38 +57,20 @@ class BasicBlockE1(HybridBlock):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 use_fp=False, use_pooling=False, write_on=0, slices=1, **kwargs):
-        super(BasicBlockE1, self).__init__(**kwargs)
-        self.bits = bits
-        self.bits_a = bits_a
-        self.channels = channels
-        self.stride = stride
-        self.in_channels = in_channels
-        self.clip_threshold = clip_threshold
+    def __init__(self, *args, use_fp=False, use_pooling=False, write_on=0, slices=1, **kwargs):
+        super(BasicBlockE1, self).__init__(*args, init=False, **kwargs)
         self.use_fp = use_fp
         self.use_pooling = use_pooling
         self.write_on = write_on
         self.slices = slices
         self.slice_width = self.channels // self.slices
 
-        self.act = None
-        self.conv = None
-        self.bn = nn.BatchNorm()
-        self.downsample = None
-        if downsample:
-            self.downsample = nn.HybridSequential(prefix='')
-        self.modifier = modifier
+        self._init()
 
-        if 'scaled' in self.modifier:
-            self._init_scaled()
-        else:
-            self._init_standard()
-
-    def _init_standard(self):
-        self.act = nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold)
-        self.conv = _conv3x3(self.bits, self.slice_width, self.stride, self.in_channels)
-
+    def _init(self):
+        self.body.add(nn.activated_conv(self.slice_width, kernel_size=3, stride=self.stride,
+                                        padding=1, in_channels=self.in_channels))
+        self.body.add(nn.BatchNorm())
         if self.downsample is not None:
             conv_stride = self.stride
             if self.use_pooling:
@@ -129,36 +80,15 @@ class BasicBlockE1(HybridBlock):
                 self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
                                               in_channels=self.in_channels, prefix="sc_conv_"))
             else:
-                self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-                self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=conv_stride,
-                                               in_channels=self.in_channels, prefix="sc_qconv_"))
-            self.downsample.add(nn.BatchNorm())
-
-    def _init_scaled(self):
-        self.conv = ScaledBinaryConv(self.bits, self.bits_a, self.slice_width, 3, self.stride, padding=1,
-                                     in_channels=self.in_channels, clip_threshold=self.clip_threshold)
-
-        if self.downsample is not None:
-            conv_stride = self.stride
-            if self.use_pooling:
-                conv_stride = 1
-                self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
-            if self.use_fp:
-                self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
-                                              in_channels=self.in_channels, prefix="sc_conv_"))
-            else:
-                self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, conv_stride, padding=0,
-                                                     in_channels=self.in_channels, clip_threshold=self.clip_threshold))
+                self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=conv_stride, padding=0,
+                                                      in_channels=self.in_channels, prefix="sc_qconv_"))
             self.downsample.add(nn.BatchNorm())
 
     def hybrid_forward(self, F, x):
         residual = x
         if self.downsample:
             residual = self.downsample(x)
-        if self.act is not None:
-            x = self.act(x)
-        x = self.conv(x)
-        x = self.bn(x)
+        x = self.body(x)
         if self.slices == 1:
             return x + residual
 
@@ -175,11 +105,11 @@ class BasicBlockE1(HybridBlock):
         return F.concat(*parts, dim=1)
 
 
-class BasicBlockE2(HybridBlock):
-    r"""BasicBlock V2 from
-    `"Identity Mappings in Deep Residual Networks"
-    <https://arxiv.org/abs/1603.05027>`_ paper.
-    This is used for ResNet V2 for 18, 34 layers.
+# Blocks
+class BasicBlockE2(BasicBlockV2):
+    r"""BasicBlock E2 similar to Bi-real network
+    <http://arxiv.org/abs/1512.03385>`_ paper.
+    This is used for ResNet E2 for 18, 34 layers.
 
     Parameters
     ----------
@@ -192,38 +122,20 @@ class BasicBlockE2(HybridBlock):
     in_channels : int, default 0
         Number of input channels. Default is 0, to infer from the graph.
     """
-    def __init__(self, bits, bits_a, channels, stride, downsample=False, in_channels=0, clip_threshold=1.0, modifier=[],
-                 use_fp=False, use_pooling=False, write_on=0, slices=1, **kwargs):
-        super(BasicBlockE2, self).__init__(**kwargs)
-        self.bits = bits
-        self.bits_a = bits_a
-        self.channels = channels
-        self.stride = stride
-        self.in_channels = in_channels
-        self.clip_threshold = clip_threshold
+
+    def __init__(self, *args, use_fp=False, use_pooling=False, write_on=0, slices=1, **kwargs):
+        super(BasicBlockE2, self).__init__(*args, init=False, **kwargs)
         self.use_fp = use_fp
         self.use_pooling = use_pooling
         self.write_on = write_on
         self.slices = slices
         self.slice_width = self.channels // self.slices
 
-        self.bn = nn.BatchNorm()
-        self.act = None
-        self.conv = None
-        self.downsample = None
-        if downsample:
-            self.downsample = nn.HybridSequential(prefix='')
-        self.modifier = modifier
+        self._init()
 
-        if 'scaled' in self.modifier:
-            self._init_scaled()
-        else:
-            self._init_standard()
-
-    def _init_standard(self):
-        self.act = nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold)
-        self.conv = _conv3x3(self.bits, self.slice_width, self.stride, self.in_channels)
-
+    def _init(self):
+        self.body.add(nn.activated_conv(self.slice_width, kernel_size=3, stride=self.stride,
+                                        padding=1, in_channels=self.in_channels))
         if self.downsample is not None:
             conv_stride = self.stride
             if self.use_pooling:
@@ -233,26 +145,8 @@ class BasicBlockE2(HybridBlock):
                 self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
                                               in_channels=self.in_channels, prefix="sc_conv_"))
             else:
-                self.downsample.add(nn.QActivation(bits=self.bits_a, gradient_cancel_threshold=self.clip_threshold))
-                self.downsample.add(nn.QConv2D(self.channels, kernel_size=1, strides=conv_stride,
-                                               in_channels=self.in_channels, prefix="sc_qconv_"))
-
-    def _init_scaled(self):
-        self.conv = ScaledBinaryConv(self.bits, self.bits_a, self.slice_width, 3, self.stride, padding=1,
-                                     in_channels=self.in_channels, clip_threshold=self.clip_threshold)
-
-        if self.downsample is not None:
-            conv_stride = self.stride
-            if self.use_pooling:
-                conv_stride = 1
-                self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
-            if self.use_fp:
-                self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
-                                              in_channels=self.in_channels, prefix="sc_conv_"))
-            else:
-                self.downsample.add(ScaledBinaryConv(self.bits, self.bits_a, self.channels, 1, conv_stride, padding=0,
-                                                     in_channels=self.in_channels, clip_threshold=self.clip_threshold,
-                                                     prefix="sc_qconv_"))
+                self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=conv_stride, padding=0,
+                                                      in_channels=self.in_channels, prefix="sc_qconv_"))
 
     def hybrid_forward(self, F, x):
         bn = self.bn(x)
@@ -260,11 +154,7 @@ class BasicBlockE2(HybridBlock):
             residual = self.downsample(bn)
         else:
             residual = x
-        if self.act is not None:
-            x = self.act(bn)
-        else:
-            x = bn
-        x = self.conv(x)
+        x = self.body(bn)
         if self.slices == 1:
             return x + residual
 
@@ -280,16 +170,60 @@ class BasicBlockE2(HybridBlock):
             parts.append(result)
         return F.concat(*parts, dim=1)
 
+
+class ResNetE(HybridBlock):
+    def __init__(self, channels, classes, use_fp, use_pooling, slices, **kwargs):
+        super(ResNetE, self).__init__(**kwargs)
+        self.features = nn.HybridSequential(prefix='')
+        self.output = nn.Dense(classes, in_units=channels[-1])
+        self.use_fp = use_fp
+        self.use_pooling = use_pooling
+        self.slices = slices
+
+    r"""Helper methods which are equal for both resnets"""
+    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
+        kwargs["use_fp"] = self.use_fp
+        kwargs["use_pooling"] = self.use_pooling
+
+        layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
+        # this tricks adds shortcut connections between original resnet blocks
+        # we multiple number of blocks by 2, but add only one layer instead of two in each block
+        layers = layers*2
+        if stride == 1:
+            # if we have no downsampling we can slice all blocks
+            offset = 1
+            slices = self.slices
+            layers_without_stride = layers * self.slices - 1
+        else:
+            # with downsampling we do not slice the first block
+            offset = 0
+            slices = 1
+            layers_without_stride = (layers - 1) * self.slices
+        with layer.name_scope():
+            layer.add(block(channels, stride, channels != in_channels, in_channels=in_channels, prefix='',
+                            slices=slices, write_on=0, **kwargs))
+            for i in range(layers_without_stride):
+                write_on = (offset + i) % self.slices
+                layer.add(block(channels, 1, False, in_channels=channels, prefix='',
+                                slices=self.slices, write_on=write_on, **kwargs))
+        return layer
+
+    def hybrid_forward(self, F, x):
+        x = self.features(x)
+        x = self.output(x)
+        return x
+
+
 # Nets
-class ResNetE1(HybridBlock):
-    r"""ResNet V1 model from
+class ResNetE1(ResNetE):
+    r"""ResNet E1 model from
     `"Deep Residual Learning for Image Recognition"
     <http://arxiv.org/abs/1512.03385>`_ paper.
 
     Parameters
     ----------
     block : HybridBlock
-        Class for the residual block. Options are BasicBlockE1, BottleneckV1.
+        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
     layers : list of int
         Numbers of layers in each block
     channels : list of int
@@ -299,17 +233,12 @@ class ResNetE1(HybridBlock):
     thumbnail : bool, default False
         Enable thumbnail.
     """
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], use_fp=False, use_pooling=False, slices=1, **kwargs):
-        super(ResNetE1, self).__init__(**kwargs)
-        assert len(layers) == len(channels) - 1
-        assert bits is not None and bits_a is not None, "number of bits needs to be set"
-        self.bits = bits
-        self.bits_a = bits_a
-        self.clip_threshold = clip_threshold
-        self.slices = slices
 
-        self.features = nn.HybridSequential(prefix='')
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False,
+                 use_fp=False, use_pooling=False, slices=1, **kwargs):
+        super(ResNetE1, self).__init__(channels, classes, use_fp, use_pooling, slices, **kwargs)
+        assert len(layers) == len(channels) - 1
+
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
         if thumbnail:
             self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
@@ -325,8 +254,8 @@ class ResNetE1(HybridBlock):
 
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
-            self.features.add(self._make_layer(block, num_layer, channels[i+1], stride, i+1, in_channels=channels[i],
-                                               modifier=modifier, use_fp=use_fp, use_pooling=use_pooling))
+            self.features.add(
+                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=channels[i]))
 
         # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
         # but we need the relu, since we do not have activition in blocks
@@ -336,45 +265,16 @@ class ResNetE1(HybridBlock):
         self.features.add(nn.GlobalAvgPool2D())
         self.features.add(nn.Flatten())
 
-        self.output = nn.Dense(classes, in_units=channels[-1])
 
-    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-        layer = nn.HybridSequential(prefix='stage%d_'%stage_index)
-        # this tricks adds shortcut connections between original resnet blocks
-        # we multiple number of blocks by 2, but add only one layer instead of two in each block
-        layers = layers*2
-        if stride == 1:
-            offset = 1
-            slices = self.slices
-            layers_without_stride = layers * self.slices - 1
-        else:
-            offset = 0
-            slices = 1
-            layers_without_stride = (layers - 1) * self.slices
-        with layer.name_scope():
-            layer.add(block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                            clip_threshold=self.clip_threshold, prefix='', slices=slices, write_on=0, **kwargs))
-            for i in range(layers_without_stride):
-                write_on = (offset + i) % self.slices
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels, slices=self.slices,
-                                clip_threshold=self.clip_threshold, prefix='', write_on=write_on, **kwargs))
-        return layer
-
-    def hybrid_forward(self, F, x):
-        x = self.features(x)
-        x = self.output(x)
-        return x
-
-
-class ResNetE2(HybridBlock):
-    r"""ResNet V2 model from
+class ResNetE2(ResNetE):
+    r"""ResNet E2 model from
     `"Identity Mappings in Deep Residual Networks"
     <https://arxiv.org/abs/1603.05027>`_ paper.
 
     Parameters
     ----------
     block : HybridBlock
-        Class for the residual block. Options are BasicBlockE1, BottleneckV1.
+        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
     layers : list of int
         Numbers of layers in each block
     channels : list of int
@@ -384,17 +284,12 @@ class ResNetE2(HybridBlock):
     thumbnail : bool, default False
         Enable thumbnail.
     """
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[], use_fp=False, use_pooling=False, slices=1, **kwargs):
-        super(ResNetE2, self).__init__(**kwargs)
-        assert len(layers) == len(channels) - 1
-        assert bits is not None and bits_a is not None, "number of bits needs to be set"
-        self.bits = bits
-        self.bits_a = bits_a
-        self.clip_threshold = clip_threshold
-        self.slices = slices
 
-        self.features = nn.HybridSequential(prefix='')
+    def __init__(self, block, layers, channels, classes=1000, thumbnail=False,
+                 use_fp=False, use_pooling=False, slices=1, **kwargs):
+        super(ResNetE2, self).__init__(channels, classes, use_fp, use_pooling, slices, **kwargs)
+        assert len(layers) == len(channels) - 1
+
         # self.features.add(nn.BatchNorm(scale=False, center=False))
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
         if thumbnail:
@@ -409,37 +304,15 @@ class ResNetE2(HybridBlock):
         in_channels = channels[0]
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2
-            self.features.add(self._make_layer(block, num_layer, channels[i+1], stride, i+1, in_channels=in_channels,
-                                               modifier=modifier, use_fp=use_fp, use_pooling=use_pooling, slices=slices))
-            in_channels = channels[i+1]
+            self.features.add(
+                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels))
+            in_channels = channels[i + 1]
 
         # fix_gamma=False missing ?
         self.features.add(nn.BatchNorm())
         self.features.add(nn.Activation('relu'))
         self.features.add(nn.GlobalAvgPool2D())
         self.features.add(nn.Flatten())
-
-        self.output = nn.Dense(classes, in_units=in_channels)
-
-    def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
-        layer = nn.HybridSequential(prefix='stage%d_'%stage_index)
-        # this tricks adds shortcut connections between original resnet blocks
-        layers = layers*2
-        layers = layers * self.slices
-        with layer.name_scope():
-            write_on = 0
-            layer.add(block(self.bits, self.bits_a, channels, stride, channels != in_channels, in_channels=in_channels,
-                            clip_threshold=self.clip_threshold, prefix='', write_on=write_on, **kwargs))
-            for i in range(layers-1):
-                write_on = (1 + i) % self.slices
-                layer.add(block(self.bits, self.bits_a, channels, 1, False, in_channels=channels,
-                                clip_threshold=self.clip_threshold, prefix='', write_on=write_on, **kwargs))
-        return layer
-
-    def hybrid_forward(self, F, x):
-        x = self.features(x)
-        x = self.output(x)
-        return x
 
 
 class ResNetEParameters(ModelParameters):
@@ -454,18 +327,14 @@ class ResNetEParameters(ModelParameters):
         kwargs['slices'] = opt.slices
         kwargs['use_fp'] = opt.fp_downsample_sc
         kwargs['use_pooling'] = opt.pool_downsample_sc
-        if opt.use_approx_sign:
-            nn.binary_act_function.set_function("approx_sign")
 
     def _add_arguments(self, parser):
         parser.add_argument('--fp-downsample-sc', action="store_true",
                             help='whether to use full precision for the 1x1 convolution at the downsample shortcut')
         parser.add_argument('--pool-downsample-sc', action="store_true",
                             help='whether to use average pooling instead of stride 2 at the downsample shortcut')
-        parser.add_argument('--use-approx-sign', action="store_true",
-                            help='whether to use approx_sign instead of det_sign')
-        parser.add_argument('--slices', type=int, default=1,
-                            help='in how many slices should a block be split')
+        parser.add_argument('--slices', type=int, default=1, choices=[1, 2, 4, 8],
+                            help='in how many slices should a block be split (1, 2, 4, or 8)')
 
 
 # Specification

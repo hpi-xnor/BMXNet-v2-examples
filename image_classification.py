@@ -40,10 +40,17 @@ def get_parser(training=True):
                        help='number of weight bits')
     model.add_argument('--bits-a', type=int, default=1,
                        help='number of bits for activation')
+    model.add_argument('--activation-method', type=str, default='det_sign',
+                       choices=['identity', 'approx_sign', 'relu', 'clip', 'leaky_clip',
+                                'det_sign', 'sign_approx_sign', 'round', 'dorefa'],
+                       help='choose activation in QActivation layer')
+    model.add_argument('--weight-quantization', type=str, default='det_sign',
+                       choices=['det_sign', 'dorefa', 'identiy', 'approx_sign'],
+                       help='choose weight quantization')
     model.add_argument('--clip-threshold', type=float, default=1.0,
                        help='clipping threshold, default is 1.0.')
     model.add_argument('--model', type=str, required=True,
-                        help='type of model to use. see vision_model for options.')
+                       help='type of model to use. see vision_model for options.')
     model.add_argument('--use-pretrained', action='store_true',
                        help='enable using pretrained model from gluon.')
     if training:
@@ -75,7 +82,7 @@ def get_parser(training=True):
         train.add_argument('--plot-network', type=str, default=None,
                             help='Whether to output the network plot.')
         train.add_argument('--profile', action='store_true',
-                            help='Option to turn on memory profiling for front-end, and prints out '
+                            help='Option to turn on memory ^profiling for front-end, and prints out '
                                  'the memory usage by python function at the end.')
         train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
@@ -135,7 +142,7 @@ def get_model(opt, ctx):
     if opt.model.startswith('resnet') or opt.model.startswith('binet'):
         if opt.dataset == "cifar10":
             kwargs['thumbnail'] = True
-        kwargs['clip_threshold'] = opt.clip_threshold
+        # kwargs['clip_threshold'] = opt.clip_threshold
     if opt.model.startswith('densenet') and opt.dataset == "cifar10":
         kwargs['thumbnail'] = True
 
@@ -148,7 +155,12 @@ def get_model(opt, ctx):
         net, arg_params, aux_params = _load_model(opt)
         skip_init = True
     else:
-        net = binary_models.get_model(opt.model, bits=opt.bits, bits_a=opt.bits_a, **kwargs)
+        model_name, *modifier = opt.model.split('-')
+        scaled = 'scaled' in modifier
+        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, scaled=scaled,
+                                              grad_cancel=opt.clip_threshold, activation=opt.activation_method,
+                                              weight_quantization=opt.weight_quantization):
+            net = binary_models.get_model(model_name, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)

@@ -111,7 +111,7 @@ class Binet(HybridBlock):
     """
 
     def __init__(self, block, layers, channels, classes=1000, thumbnail=True, bits=None, bits_a=None,
-                 clip_threshold=1.0, modifier=[],  **kwargs):
+                 clip_threshold=1.0,  **kwargs):
         super(Binet, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
         assert bits is not None and bits_a is not None, "number of bits needs to be set"
