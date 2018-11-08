@@ -319,8 +319,8 @@ class ResNetEParameters(ModelParameters):
     def __init__(self):
         super(ResNetEParameters, self).__init__('ResNetE')
 
-    def _is_it_this_model(self, opt):
-        return opt.model.startswith('resnet') and "_e" in opt.model
+    def _is_it_this_model(self, model):
+        return model.startswith('resnet') and "_e" in model
 
     def _map_opt_to_kwargs(self, opt, kwargs):
         assert opt.slices in [1, 2, 4, 8], ""

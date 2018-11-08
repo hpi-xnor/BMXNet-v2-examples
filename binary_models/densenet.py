@@ -163,8 +163,8 @@ class DenseNetParameters(ModelParameters):
     def __init__(self):
         super(DenseNetParameters, self).__init__('DenseNet')
 
-    def _is_it_this_model(self, opt):
-        return opt.model.startswith('densenet')
+    def _is_it_this_model(self, model):
+        return model.startswith('densenet')
 
     def _map_opt_to_kwargs(self, opt, kwargs):
         kwargs['opt_reduction'] = opt.reduction
@@ -180,6 +180,8 @@ class DenseNetParameters(ModelParameters):
                             help='add this many features each block')
         parser.add_argument('--init-features', type=int, default=None,
                             help='start with this many filters in the first layer')
+        parser.add_argument('--fp-downsample-sc', action="store_true",
+                            help='whether to use full precision for the 1x1 convolution at the downsample shortcut')
         parser.add_argument('--add-relu-to-downsample', action="store_true",
                             help='whether to add relu to full precision 1x1 convolution at the downsample shortcut')
 

@@ -17,7 +17,7 @@
 
 from __future__ import division
 
-import argparse, time
+import argparse, time, sys
 import math
 from graphviz import ExecutableNotFound
 from mxnet import gluon, lr_scheduler
@@ -82,7 +82,7 @@ def get_parser(training=True):
         train.add_argument('--plot-network', type=str, default=None,
                             help='Whether to output the network plot.')
         train.add_argument('--profile', action='store_true',
-                            help='Option to turn on memory ^profiling for front-end, and prints out '
+                            help='Option to turn on memory profiling for front-end, and prints out '
                                  'the memory usage by python function at the end.')
         train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
@@ -118,8 +118,13 @@ def get_parser(training=True):
                         help='number of workers of dataloader.')
     parser.add_argument('--prefix', default='', type=str,
                         help='path to checkpoint prefix, default is current working dir')
+    first_args = sys.argv[1:][:]
+    for pattern in ("--help", "-h"):
+        if pattern in first_args:
+            first_args.remove(pattern)
+    first_parse, _ = parser.parse_known_args(first_args)
     for model_parameter in binary_models.get_model_parameters():
-        model_parameter.add_group(parser)
+        model_parameter.add_group(parser, first_parse.model)
     return parser
 
 

@@ -102,8 +102,8 @@ class VGGParameters(ModelParameters):
     def __init__(self):
         super(VGGParameters, self).__init__('VGG')
 
-    def _is_it_this_model(self, opt):
-        return opt.model.startswith('vgg')
+    def _is_it_this_model(self, model):
+        return model.startswith('vgg')
 
     def _map_opt_to_kwargs(self, opt, kwargs):
         kwargs['batch_norm'] = opt.batch_norm
