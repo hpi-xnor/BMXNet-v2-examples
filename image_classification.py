@@ -41,9 +41,12 @@ def get_parser(training=True):
     model.add_argument('--bits-a', type=int, default=1,
                        help='number of bits for activation')
     model.add_argument('--activation-method', type=str, default='det_sign',
-                       help='choose activation in QActivation layer: approx_sign, relu, clip, leaky_clip, det_sign, sign_approx_sign, round, dorefa')
+                       choices=['identity', 'approx_sign', 'relu', 'clip', 'leaky_clip',
+                                'det_sign', 'sign_approx_sign', 'round', 'dorefa'],
+                       help='choose activation in QActivation layer')
     model.add_argument('--weight-quantization', type=str, default='det_sign',
-                       help='choose weight quantization: det_sign, dorefa, identiy, approx_sign')
+                       choices=['det_sign', 'dorefa', 'identiy', 'approx_sign'],
+                       help='choose weight quantization')
     model.add_argument('--clip-threshold', type=float, default=1.0,
                        help='clipping threshold, default is 1.0.')
     model.add_argument('--model', type=str, required=True,
@@ -79,7 +82,7 @@ def get_parser(training=True):
         train.add_argument('--plot-network', type=str, default=None,
                             help='Whether to output the network plot.')
         train.add_argument('--profile', action='store_true',
-                            help='Option to turn on memory profiling for front-end, and prints out '
+                            help='Option to turn on memory ^profiling for front-end, and prints out '
                                  'the memory usage by python function at the end.')
         train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
