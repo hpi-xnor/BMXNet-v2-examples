@@ -73,15 +73,15 @@ class BasicBlockV1(HybridBlock):
 
 
     def _init(self):
-        self.body.add(
-            nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1, in_channels=self.in_channels))
+        self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
+                                        in_channels=self.in_channels))
         self.body.add(nn.BatchNorm())
         self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
         self.body.add(nn.BatchNorm())
 
         if self.downsample is not None:
             self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
-                                               in_channels=self.in_channels))
+                                                  in_channels=self.in_channels, prefix="sc_qconv_"))
             self.downsample.add(nn.BatchNorm())
 
     def hybrid_forward(self, F, x):
@@ -175,14 +175,14 @@ class BasicBlockV2(HybridBlock):
 
     def _init(self):
         self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=self.stride, padding=1,
-                                     in_channels=self.in_channels))
+                                        in_channels=self.in_channels))
         self.body.add(nn.BatchNorm())
-        self.body.add(
-            nn.ScaledBinaryConv(self.channels, kernel_size=3, stride=1, padding=1, in_channels=self.channels))
+        self.body.add(nn.activated_conv(self.channels, kernel_size=3, stride=1, padding=1, 
+                                        in_channels=self.channels))
 
         if self.downsample is not None:
             self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=self.stride, padding=0,
-                                               in_channels=self.in_channels, prefix="sc_qconv_"))
+                                                  in_channels=self.in_channels, prefix="sc_qconv_"))
 
     def hybrid_forward(self, F, x):
         bn = self.bn(x)
