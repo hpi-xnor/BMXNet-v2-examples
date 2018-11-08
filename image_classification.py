@@ -45,7 +45,7 @@ def get_parser(training=True):
                                 'det_sign', 'sign_approx_sign', 'round', 'dorefa'],
                        help='choose activation in QActivation layer')
     model.add_argument('--weight-quantization', type=str, default='det_sign',
-                       choices=['det_sign', 'dorefa', 'identiy', 'approx_sign'],
+                       choices=['det_sign', 'dorefa', 'identity', 'approx_sign'],
                        help='choose weight quantization')
     model.add_argument('--clip-threshold', type=float, default=1.0,
                        help='clipping threshold, default is 1.0.')
