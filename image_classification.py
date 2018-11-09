@@ -161,17 +161,17 @@ def get_model(opt, ctx):
         skip_init = True
     else:
         model_name, *modifier = opt.model.split('-')
-		if 'xnor_scaled' in modifier:
-	        scaled = True
-			stop_weight_scale_grad = True
-		elif 'binet_scaled' in modifier:
-			scaled = True
-			stop_weight_scale_grad = False
-		else:
-			scaled = False
-			stop_weight_scale_grad = True  # doesnt matter
+        if 'xnor_scaled' in modifier:
+            scaled = True
+            stop_weight_scale_grad = True
+        elif 'binet_scaled' in modifier:
+            scaled = True
+            stop_weight_scale_grad = False
+        else:
+            scaled = False
+            stop_weight_scale_grad = True  # doesnt matter
         with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, 
-											  scaled=scaled, stop_weight_scale_grad=stop_weight_scale_grad,
+                                              scaled=scaled, stop_weight_scale_grad=stop_weight_scale_grad,
                                               grad_cancel=opt.clip_threshold, activation=opt.activation_method,
                                               weight_quantization=opt.weight_quantization):
             net = binary_models.get_model(model_name, **kwargs)
