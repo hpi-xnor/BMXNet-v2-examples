@@ -559,6 +559,7 @@ if __name__ == '__main__':
         context = [mx.cpu()]
     num_gpus = len(context)
     batch_size *= max(1, num_gpus)
+    opt.batch_size = batch_size
     lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
     metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 
