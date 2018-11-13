@@ -120,4 +120,6 @@ model
 
 # network plots
 plot.*
-plots/*
+plots*/*.txt
+plots*/*.gv
+plots*/*.gv.pdf
