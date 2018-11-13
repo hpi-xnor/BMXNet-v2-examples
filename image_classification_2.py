@@ -368,6 +368,8 @@ def train(ctx):
         a = mx.viz.plot_network(sym, shape={"data": (1, 3, 224, 224)})
         try:
             a.render('{}.gv'.format(opt.plot_network))
+        except OSError as e:
+            logger.error(e)
         except ExecutableNotFound as e:
             logger.error(e)
 
