@@ -161,7 +161,7 @@ def get_model(opt, ctx):
         skip_init = True
     else:
         model_name, *modifier = opt.model.split('-')
-        scaling = None
+        scaling = ""
         if 'scaled' in modifier:
             scaling = "xnor"
         elif 'binet_scaled' in modifier:
