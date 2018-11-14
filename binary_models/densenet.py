@@ -19,6 +19,7 @@
 # pylint: disable= arguments-differ
 """DenseNet, implemented in Gluon."""
 __all__ = ['DenseNet', 'DenseNetParameters',
+           'densenet_flex',
            'densenet13',  'densenet21',  'densenet37',  'densenet69',
            'densenet121', 'densenet161', 'densenet169', 'densenet201']
 
@@ -148,6 +149,7 @@ class DenseNet(HybridBlock):
 # Specification
 # init_features, growth_rate, bn_size, reduction, block_config
 densenet_spec = {
+    -1: (64, 64, 0, 1, []),
     13: (64, 32, 0, 1, [1, 1, 1, 1]),
     21: (64, 32, 0, 1, [2, 2, 2, 2]),
     37: (64, 32, 0, 1, [4, 4, 4, 4]),
@@ -172,6 +174,8 @@ class DenseNetParameters(ModelParameters):
         kwargs['opt_init_features'] = opt.init_features
         kwargs['use_fp'] = opt.fp_downsample_sc
         kwargs['use_relu'] = opt.add_relu_to_downsample
+        if opt.model == "densenet_flex":
+            kwargs['opt_block_config'] = [int(x) for x in opt.block_config.split(",")]
 
     def _add_arguments(self, parser):
         parser.add_argument('--reduction', type=str, default=None,
@@ -184,12 +188,14 @@ class DenseNetParameters(ModelParameters):
                             help='whether to use full precision for the 1x1 convolution at the downsample shortcut')
         parser.add_argument('--add-relu-to-downsample', action="store_true",
                             help='whether to add relu to full precision 1x1 convolution at the downsample shortcut')
+        parser.add_argument('--block-config', type=str, default=None,
+                            help='how many blocks to use')
 
 
 # Constructor
 def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=None, bits_a=None,
                  opt_init_features=None, opt_growth_rate=None, opt_reduction=None,
-                 root=os.path.join(base.data_dir(), 'models'), **kwargs):
+                 opt_block_config=None, root=os.path.join(base.data_dir(), 'models'), **kwargs):
     r"""Densenet-BC model from the
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
 
@@ -205,6 +211,8 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=None, bits_a=None
         Location for keeping the model parameters.
     """
     init_features, growth_rate, bn_size, reduction, block_config = densenet_spec[num_layers]
+    if num_layers == -1:
+        block_config = opt_block_config
     num_transition_blocks = len(block_config) - 1
     if opt_init_features is not None:
         init_features = opt_init_features
@@ -224,6 +232,21 @@ def get_densenet(num_layers, pretrained=False, ctx=cpu(), bits=None, bits_a=None
         # from ..model_store import get_model_file
         # net.load_parameters(get_model_file('densenet%d'%(num_layers), root=root), ctx=ctx)
     return net
+
+def densenet_flex(**kwargs):
+    r"""Densenet-BC flex-layer model inspired by
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_densenet(-1, **kwargs)
 
 def densenet13(**kwargs):
     r"""Densenet-BC 13-layer model inspired by
