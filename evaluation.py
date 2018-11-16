@@ -113,7 +113,7 @@ if __name__ == '__main__':
 
     _, val_data = get_data_iters(opt)
 
-    for i, batch in enumerate(tqdm.tqdm(val_data)):
+    for i, batch in enumerate(tqdm.tqdm(val_data, total=50000 // opt.batch_size)):
         padding = 0
         if opt.dataset == "imagenet" and num_correct + num_wrong + opt.batch_size >= 50000:
             # fix validation "padding"
