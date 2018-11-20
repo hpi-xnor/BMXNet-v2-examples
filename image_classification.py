@@ -164,7 +164,8 @@ def get_model(opt, ctx):
         scaling = ""
         if 'binet_scaled' in modifier:
             scaling = "binet"
-        elif 'scaled' in modifier:
+        if 'scaled' in modifier:
+            assert scaling == "", "Contradicting model modifiers: binet_scaled, scaled. Please specify only on scaling method"
             scaling = "xnor"
         with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, scaling=scaling,
                                               grad_cancel=opt.clip_threshold, activation=opt.activation_method,
