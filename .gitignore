@@ -123,3 +123,4 @@ plot.*
 plots*/*.txt
 plots*/*.gv
 plots*/*.gv.pdf
+.DS_Store
