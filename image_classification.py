@@ -162,10 +162,10 @@ def get_model(opt, ctx):
     else:
         model_name, *modifier = opt.model.split('-')
         scaling = ""
-        if 'scaled' in modifier:
-            scaling = "xnor"
-        elif 'binet_scaled' in modifier:
+        if 'binet_scaled' in modifier:
             scaling = "binet"
+        elif 'scaled' in modifier:
+            scaling = "xnor"
         with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, scaling=scaling,
                                               grad_cancel=opt.clip_threshold, activation=opt.activation_method,
                                               weight_quantization=opt.weight_quantization):
