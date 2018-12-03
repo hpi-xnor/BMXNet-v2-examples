@@ -6,6 +6,7 @@ import struct
 import argparse
 import matplotlib.pyplot as plt
 import mxnet as mx
+import logging
 
 from random import randint
 from math import sqrt
@@ -16,7 +17,7 @@ def download_data(dir, files):
         filename = os.path.join(dir, name)
 
         if not os.path.isfile(filename):
-            print ("downloading file %s..." % name)
+            logging.info("downloading file %s..." % name)
             urllib.urlretrieve(url, filename)
 
 def read_data(label_url, image_url):
@@ -52,7 +53,7 @@ def check_data_visually(train_img, train_lbl):
         plt.imshow(train_img[i], cmap='Greys_r')
         plt.axis('off')
     plt.show()
-    print('label: %s' % (train_lbl[0:10],))
+    logging.info('label: %s' % (train_lbl[0:10],))
 
 
 def to4d(img):
@@ -72,31 +73,31 @@ def val(model_prefix, epoch_num, train_img, val_img, train_lbl, val_lbl, batch_s
     if gpu_id >= 0:
         device = mx.gpu(gpu_id)
     
-    print('Preparing data for validation...')
+    logging.info('Preparing data for validation...')
     val_iter = prepair_data_iter(train_img, val_img, train_lbl, val_lbl, batch_size)
     
-    print('Loading model...')   
+    logging.info('Loading model...')   
     sym, arg_params, aux_params = mx.model.load_checkpoint(model_prefix, epoch_num)
         
     #Note: we have to do this because the converted model from gluon without this argument.
     if not 'softmax_label' in sym.list_arguments():
-        print(sym.list_arguments())
+        logging.info(sym.list_arguments())
         sym = mx.symbol.SoftmaxOutput(data=sym, name='softmax')
-        print(sym.list_arguments())
+        logging.info(sym.list_arguments())
 
     model = mx.mod.Module(symbol=sym, context=device)
    
-    print('Model binding...')   
+    logging.info('Model binding...')   
     model.bind(for_training=False,
              data_shapes=val_iter.provide_data,
              label_shapes=val_iter.provide_label)
     model.set_params(arg_params, aux_params)
 
     
-    print('Evaluating...')
+    logging.info('Evaluating...')
     metric = mx.metric.Accuracy()
     score = model.score(val_iter, metric)
-    print (score)
+    logging.info (score)
 
 def classify(val_img, model_prefix, epoch_num, train_img, train_lbl, val_lbl, batch_size, gpu_id=0):
     '''
@@ -107,18 +108,18 @@ def classify(val_img, model_prefix, epoch_num, train_img, train_lbl, val_lbl, ba
         device = mx.gpu(gpu_id)
     val_iter = prepair_data_iter(train_img, val_img, train_lbl, val_lbl, batch_size)
 
-    print('Loading model...')   
+    logging.info('Loading model...')   
     sym, arg_params, aux_params = mx.model.load_checkpoint(model_prefix, epoch_num)
         
     #Note: we have to do this because the converted model from gluon without this argument.
     if not 'softmax_label' in sym.list_arguments():
-        print(sym.list_arguments())
+        logging.info(sym.list_arguments())
         sym = mx.symbol.SoftmaxOutput(data=sym, name='softmax')
-        print(sym.list_arguments())
+        logging.info(sym.list_arguments())
 
     model = mx.mod.Module(symbol=sym, context=device)
    
-    print('Model binding...')   
+    logging.info('Model binding...')   
     model.bind(for_training=False,
              data_shapes=val_iter.provide_data,
              label_shapes=val_iter.provide_label)
@@ -129,7 +130,7 @@ def classify(val_img, model_prefix, epoch_num, train_img, train_lbl, val_lbl, ba
     plt.axis('off')
     plt.show()
     prob = model.predict(eval_data=val_iter, num_batch=1)[n].asnumpy() 
-    print ('Classified as %d[%d] with probability %f' % (prob.argmax(), val_lbl[n], max(prob)))
+    logging.info ('Classified as %d[%d] with probability %f' % (prob.argmax(), val_lbl[n], max(prob)))
 
 
 def check_data_visually(train_img, train_lbl):
@@ -137,12 +138,14 @@ def check_data_visually(train_img, train_lbl):
         plt.subplot(1,10,i+1)
         plt.imshow(train_img[i], cmap='Greys_r')
         plt.axis('off') 
-    print('label: %s' % (train_lbl[0:10],))
+    logging.info('label: %s' % (train_lbl[0:10],))
     plt.show()
 
 
 def main(args):
-    print('preparing data...')
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    logging.info('preparing data...')
     train_img, val_img, train_lbl, val_lbl = prepare_data()
     #can be used for checking mnist data with respect to its label
     #check_data_visually(train_img, train_lbl)
