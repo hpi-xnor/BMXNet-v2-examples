@@ -53,6 +53,9 @@ def get_parser(training=True):
                        help='type of model to use. see vision_model for options.')
     model.add_argument('--use-pretrained', action='store_true',
                        help='enable using pretrained model from gluon.')
+    model.add_argument('--approximation', type=str, default='',
+                       choices=['', 'xnor', 'binet', 'abc'],
+                       help='Choose kind of convolution block approximation. Can include scaling or multiple binary convolutions.')
     if training:
         train = parser.add_argument_group('Training', 'parameters for training')
         train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=3,
@@ -138,6 +141,17 @@ def _load_model(opt):
     return mx.model.load_checkpoint(model_prefix, opt.start_epoch)
 
 
+def _get_scaling_legacy(opt):
+    model_name, *modifier = opt.model.split('-')
+    scaling = ""
+    if 'binet_scaled' in modifier:
+        scaling = "binet"
+    if 'scaled' in modifier:
+        assert scaling == "", "Contradicting model modifiers: binet_scaled, scaled. Please specify only on scaling method"
+        scaling = "xnor"
+    return scaling
+
+
 def get_model(opt, ctx):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
@@ -160,14 +174,8 @@ def get_model(opt, ctx):
         net, arg_params, aux_params = _load_model(opt)
         skip_init = True
     else:
-        model_name, *modifier = opt.model.split('-')
-        scaling = ""
-        if 'binet_scaled' in modifier:
-            scaling = "binet"
-        if 'scaled' in modifier:
-            assert scaling == "", "Contradicting model modifiers: binet_scaled, scaled. Please specify only on scaling method"
-            scaling = "xnor"
-        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, scaling=scaling,
+        approximation = opt.approximation or _get_scaling_legacy(opt)
+        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, approximation=approximation,
                                               grad_cancel=opt.clip_threshold, activation=opt.activation_method,
                                               weight_quantization=opt.weight_quantization):
             net = binary_models.get_model(model_name, **kwargs)
