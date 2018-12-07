@@ -150,6 +150,7 @@ def convert_params(model_dict, bits):
         if v.ndim < 2:
             continue
 
+        # concatenate the weights of qconv layer
         if tp == 'arg' and PREFIX_Q_CONV in name and PREFIX_WEIGHT in name:
             
             logging.info('{}:{}:{}'.format(tp, name, v.shape[1]))             
@@ -157,12 +158,14 @@ def convert_params(model_dict, bits):
             if v.shape[1] % bits != 0: # dim of input has to be divisible by bits (32 or 64)
                 raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'.format(name, v.shape[1]))
 
-            size_binary_row = int(v.size / bits)
+            size_binary_row = int(v.size / bits)            
             # init binary row for concatenation
-            binary_row = mx.nd.zeros((size_binary_row), dtype=get_dtype[bits])            
-            binary_row = get_binary_row(v.reshape((-1)), binary_row, v.size, bits)
+            # binary_row = mx.nd.zeros((size_binary_row), dtype=get_dtype[bits], ctx= mx.cpu(0))            
+            binary_row = np.zeros((size_binary_row), dtype=get_dtype[bits])
+            get_binary_row(v.reshape((-1)), binary_row, v.size, bits)
+            # binary_row = mx.nd.array(get_binary_row(v.reshape((-1)), binary_row, v.size, bits), dtype="int64")
 
-            # TODO: concatenate the qconv layer
+
 
         # if tp == 'arg' and PREFIX_Q_DENSE in name and PREFIX_WEIGHT in name:
         #     logging.info('{}:{}:{}'.format(tp, name, v.shape))              
@@ -215,7 +218,7 @@ def convert(model, output, bits):
 
 def check_bits(value):
     nbit = int(value)
-    if nbit != 32 or nbit != 64:
+    if nbit != 32 and nbit != 64:
          raise argparse.ArgumentTypeError("%s is an invalid value for '--bits', the valid value is 32 or 64" % value)
     return nbit
     

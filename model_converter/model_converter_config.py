@@ -1,7 +1,7 @@
 # variable type for storing weights in binary inference layer
 get_dtype = { 
-	32 : 'float32',
-	64 : 'float64'
+	32 : 'uint32',
+	64 : 'uint64'
 }
 
 # layer name related
