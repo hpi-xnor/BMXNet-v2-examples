@@ -44,9 +44,9 @@ def convert_symbol_json(symbol):
         Go through the symbol internal items and change them is quite complicated, 
         we thus have to modify the json file.
         mxnet symbol json objects to be adapted:
-        - arg_notes
-        - heads
-        - arg_nodes
+        - nodes: all operators
+        - heads: head node
+        - arg_nodes: arg nodes, usually just exclude '_fwd' operators.
         - node_row_ptr ? not yet found information about this item ?
     '''
     try:
