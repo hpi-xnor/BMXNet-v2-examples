@@ -155,25 +155,31 @@ def convert_params(model_dict, bits):
             
             logging.info('{}:{}:{}'.format(tp, name, v.shape[1]))             
             
+            out_dim = v.shape[0]
             if v.shape[1] % bits != 0: # dim of input has to be divisible by bits (32 or 64)
-                raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'.format(name, v.shape[1]))
+                raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'
+                                .format(name, v.shape[1]))
 
             size_binary_row = int(v.size / bits)            
-            # init binary row for concatenation
-            # binary_row = mx.nd.zeros((size_binary_row), dtype=get_dtype[bits], ctx= mx.cpu(0))            
-            binary_row = np.zeros((size_binary_row), dtype=get_dtype[bits])
-            get_binary_row(v.reshape((-1)), binary_row, v.size, bits)
-            # binary_row = mx.nd.array(get_binary_row(v.reshape((-1)), binary_row, v.size, bits), dtype="int64")
+            # create binary row for concatenation
+            binary_row = np.zeros((size_binary_row), dtype=get_numpy_dtype[bits])
 
+            # get_binary_row(v.reshape((-1)), binary_row, v.size, bits)
+            binary_row = mx.nd.array(get_binary_row(v.reshape(-1), binary_row, v.size, bits), dtype=get_mx_nd_dtype[bits])            
+            model_dict[k] = binary_row
 
-
-        # if tp == 'arg' and PREFIX_Q_DENSE in name and PREFIX_WEIGHT in name:
-        #     logging.info('{}:{}:{}'.format(tp, name, v.shape))              
-            # TODO: concatenate the qdense layer
-    
-
-    
-
+        if tp == 'arg' and PREFIX_Q_DENSE in name and PREFIX_WEIGHT in name:
+            # since in fc layer the weight is considered as col, so we have to transpose it
+            v = v.T
+            logging.info('{}:{}:{}'.format(tp, name, v.shape[0]))
+            if v.shape[0] % bits != 0: # dim of input has to be divisible by bits (32 or 64)
+                raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'
+                                .format(name, v.shape[1]))            
+            size_binary_col = int(v.size / bits)
+            binary_col = np.zeros((size_binary_col), dtype=get_numpy_dtype[bits])
+            binary_col =mx.nd.array(get_binary_col(v.reshape((-1)), binary_col, v.shape[0], v.shape[1], bits), 
+                                    dtype=get_mx_nd_dtype[bits])
+            model_dict[k] = binary_col
 
     return model_dict
 
@@ -199,13 +205,11 @@ def convert(model, output, bits):
     model_dict = mx.nd.load(model)
     model_dict_converted = convert_params(model_dict, bits)
     
-
-
-    # try:
-    #     logging.info('============ saving binarized params file: {} ============'.format(out_params_file))
-    #     mx.nd.save(out_params_file, model_dict_converted)
-    # except Exception as e:
-    #     raise Exception('Save file "{}" failed.'.format(out_params_file))
+    try:
+        logging.info('============ saving binarized params file: {} ============'.format(out_params_file))
+        mx.nd.save(out_params_file, model_dict_converted)
+    except Exception as e:
+        raise Exception('Save file "{}" failed.'.format(out_params_file))
 
     try:        
         logging.info('============ saving json symbol file: {} ============'.format(out_json_file))

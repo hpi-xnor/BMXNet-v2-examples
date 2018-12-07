@@ -12,13 +12,7 @@ def bit_set(var, pos, val):
     var |= (val << pos) 
     return var
 
-def transpose_and_convert_to_binary_col(nd_in):
-    '''
-    description: 
-        transpose and then binarize an array column wise
-    '''
-    nd_out = None
-    return nd_out
+
 
 def get_binary_row(nd_row, binary_row, nd_size, bits_per_binary_word):
     '''
@@ -46,38 +40,50 @@ def get_binary_row(nd_row, binary_row, nd_size, bits_per_binary_word):
             rvalue = bit_set(rvalue, j, sign)
             j += 1        
         
-        print('rvalue after {0:64b}'.format(rvalue))
-        # print("row before {}".format(binary_row[int(i/bits_per_binary_word)]))
-        print('rvalue after {}'.format(rvalue))
-        print(type(rvalue))
-      
+        # print('{0:64b}'.format(rvalue))
+        
         binary_row[int(i/bits_per_binary_word)] = rvalue
-
-        print('rvalue after {}'.format(int(binary_row[int(i/bits_per_binary_word)])))
-
-        print(mx.nd.array(binary_row, dtype=np.float64)[int(i/bits_per_binary_word)])
-        print('{0:.1f}'.format(mx.nd.array(binary_row, dtype=np.float64).asnumpy()[int(i/bits_per_binary_word)]))
-
-        # print(binary_row.dtype)
-
-        #print("row after {}".format(binary_row[int(i/bits_per_binary_word)]))
-        # print('{0:32b}'.format(rvalue))
-        # print('{0:32b}'.format(int(binary_row.asnumpy()[int(i/bits_per_binary_word)])))
-        # print(int(binary_row.asnumpy()[int(i/bits_per_binary_word)]))
-
-
+        
+        # print('{0:64b}'.format(binary_row[int(i/bits_per_binary_word)]))
+        # testing stuff
+        # d = mx.nd.array(binary_row, dtype="float64")
+        # print('{0:64b}'.format(int(d.asnumpy()[int(i/bits_per_binary_word)])))
         i += bits_per_binary_word
-
-
-        if i == 64:
-            break        
-
     return binary_row
 
-# def get_binary_col(nd_col, binary_col, dim_n, dim_k):
+def get_binary_col(nd_col, binary_col, dim_n, dim_k, bits_per_binary_word):
     '''
     description: 
-        binarize an array column wise
+        binarize an array column wise.
+        A re-implementation of the cpp version:
+
+        for(int y=0; y<(n/BITS_PER_BINARY_WORD); y++){
+          for(int x=0; x < k; ++x){          
+            BINARY_WORD rvalue=0;
+            BINARY_WORD sign;    
+            for(int b=0; b<BITS_PER_BINARY_WORD; ++b){
+              sign = (col[(y*BITS_PER_BINARY_WORD+b)*k + x]>=0);          
+              BIT_SET(rvalue, b, sign);
+            }
+            b_col[y*k + x] = rvalue;
+          }
+        }   
+
     '''
-    nd_out = None
-    return nd_out
+    y = 0
+    while y < int(dim_n/bits_per_binary_word):
+        x = 0
+        while x < dim_k:
+            rvalue = 0            
+            b = 0
+            while b < bits_per_binary_word:
+                sign = 0
+                if nd_col[(y*bits_per_binary_word+b)*dim_k + x] >= 0:
+                    sign = 1
+                bit_set(rvalue, b, sign)
+                b+=1
+            binary_col[y*dim_k + x] = rvalue
+            x+=1
+        y+=1
+
+    return binary_col
