@@ -76,6 +76,15 @@ def convert_symbol_json(symbol):
         # update arg_nodes : contains indices of all non-fwd nodes
         arg_nodes_new = []
 
+        
+
+        # TODO: there are still several issues have to be fixed.
+        # - wrong input index
+        # - wrong infere shape of binary conv and binary fc layers.
+        # - the inference result is wrong, but we don't know where the problem is, have to compare to cpp model converter
+
+
+
         # update nodes
         for op in nodes:
             # 1. remove qactivation ops
@@ -208,6 +217,7 @@ def convert(model, output, bits):
     try:
         logging.info('============ saving binarized params file: {} ============'.format(out_params_file))
         mx.nd.save(out_params_file, model_dict_converted)
+        logging.info('New params file "%s" succesfully saved.'%out_params_file)
     except Exception as e:
         raise Exception('Save file "{}" failed.'.format(out_params_file))
 
@@ -216,6 +226,7 @@ def convert(model, output, bits):
         with open(out_json_file, 'w') as outfile:
             outfile.write(json.dumps(sym_items, indent=4, sort_keys=True))
             outfile.close()
+            logging.info('New symbol file "%s" succesfully saved.'%out_json_file)
     except Exception as e:
         raise Exception('Save file "{}" failed.'.format(out_json_file))
 
