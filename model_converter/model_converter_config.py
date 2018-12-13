@@ -35,5 +35,5 @@ binary_layer_replacements = {
 # 2.for qconv and qdense, we only retain 'weight', 'bias' and 'fwd' operators   
 retained_ops_patterns_in_conv_dense = ['weight', 'bias', 'fwd']
 
-# use this to distinguish arg_nodes : contains indices of all non-fwd nodes
-FWD_OP_PATTERN = '_fwd'
+# use this to distinguish arg_nodes : op = 'null'
+ARG_NODES_OP_PATTERN = 'null'

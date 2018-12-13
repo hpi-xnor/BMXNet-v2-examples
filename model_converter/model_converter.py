@@ -74,16 +74,7 @@ def convert_symbol_json(symbol):
         heads_new = [0, 0, 0]
         retained_op_num = 0
         # update arg_nodes : contains indices of all non-fwd nodes
-        arg_nodes_new = []
-
-        
-
-        # TODO: there are still several issues have to be fixed.
-        # - wrong input index
-        # - wrong infere shape of binary conv and binary fc layers.
-        # - the inference result is wrong, but we don't know where the problem is, have to compare to cpp model converter
-
-
+        arg_nodes_new = []                
 
         # update nodes
         for op in nodes:
@@ -110,10 +101,21 @@ def convert_symbol_json(symbol):
                     logging.info('converting op: {} from {} to {}'.format(op['name'], PREFIX_DENSE,
                                 binary_layer_replacements[PREFIX_DENSE]))                 
             if not foundq or retain:  
+                # get inputs
+                if op['inputs']:     
+                    inputs_new = []
+                    in_len = len(op['inputs'])
+                    i = 0
+                    for inp in op['inputs']:
+                        inp[0] = retained_op_num - (in_len - i)
+                        inputs_new.append(inp)
+                        i += 1
+                    op['inputs'] = inputs_new
+                    # logging.info(op['inputs'])
                 # add node                
                 nodes_new.append(op)
                 # add arg_node
-                if FWD_OP_PATTERN not in op['name']:
+                if op['op'] == ARG_NODES_OP_PATTERN:
                     arg_nodes_new.append(retained_op_num)
                 retained_op_num += 1        
                   
@@ -160,10 +162,8 @@ def convert_params(model_dict, bits):
             continue
 
         # concatenate the weights of qconv layer
-        if tp == 'arg' and PREFIX_Q_CONV in name and PREFIX_WEIGHT in name:
-            
-            logging.info('{}:{}:{}'.format(tp, name, v.shape[1]))             
-            
+        if tp == 'arg' and PREFIX_Q_CONV in name and PREFIX_WEIGHT in name:            
+            logging.info('{}:{}:{}'.format(tp, name, v.shape[1]))                         
             out_dim = v.shape[0]
             if v.shape[1] % bits != 0: # dim of input has to be divisible by bits (32 or 64)
                 raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'
@@ -174,13 +174,13 @@ def convert_params(model_dict, bits):
             binary_row = np.zeros((size_binary_row), dtype=get_numpy_dtype[bits])
 
             # get_binary_row(v.reshape((-1)), binary_row, v.size, bits)
-            binary_row = mx.nd.array(get_binary_row(v.reshape(-1), binary_row, v.size, bits), dtype=get_mx_nd_dtype[bits])            
-            model_dict[k] = binary_row
+            binary_row = mx.nd.array(get_binary_row(v.reshape(-1), binary_row, v.size, bits), dtype=get_mx_nd_dtype[bits]) 
+            model_dict[k] = binary_row.reshape((v.shape[0], -1, v.shape[2], v.shape[3]))
 
         if tp == 'arg' and PREFIX_Q_DENSE in name and PREFIX_WEIGHT in name:
             # since in fc layer the weight is considered as col, so we have to transpose it
-            v = v.T
-            logging.info('{}:{}:{}'.format(tp, name, v.shape[0]))
+            v = v.T # shape after matrix transpose (input_dim, output_dim)
+            logging.info('{}:{}:{}'.format(tp, name, v.shape[0]))            
             if v.shape[0] % bits != 0: # dim of input has to be divisible by bits (32 or 64)
                 raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'
                                 .format(name, v.shape[1]))            
@@ -188,7 +188,7 @@ def convert_params(model_dict, bits):
             binary_col = np.zeros((size_binary_col), dtype=get_numpy_dtype[bits])
             binary_col =mx.nd.array(get_binary_col(v.reshape((-1)), binary_col, v.shape[0], v.shape[1], bits), 
                                     dtype=get_mx_nd_dtype[bits])
-            model_dict[k] = binary_col
+            model_dict[k] = binary_col.reshape((v.shape[1], -1))
 
     return model_dict
 
