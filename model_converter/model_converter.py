@@ -40,14 +40,13 @@ def convert_symbol_json(symbol):
     symbol: mxnet network symbol
     return: adapted json object
     description:
-        Since it is not easy to create new graph for a symbol set.
-        Go through the symbol internal items and change them is quite complicated, 
-        we thus have to modify the json file.
+        we modify the json file.
         mxnet symbol json objects to be adapted:
         - nodes: all operators
         - heads: head node
-        - arg_nodes: arg nodes, usually just exclude '_fwd' operators.
-        - node_row_ptr ? not yet found information about this item ?
+        - arg_nodes: arg nodes, usually 'null' operators.
+        - node_row_ptr: not yet found detailed information about this item, 
+                        but it seems not affecting the inference
     '''
     try:
         sym_items = json.loads(symbol.tojson())
@@ -73,7 +72,7 @@ def convert_symbol_json(symbol):
         nodes_new = []
         heads_new = [0, 0, 0]
         retained_op_num = 0
-        # update arg_nodes : contains indices of all non-fwd nodes
+        # update arg_nodes : contains indices of all "null" nodes
         arg_nodes_new = []                
 
         # update nodes
