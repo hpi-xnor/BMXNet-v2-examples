@@ -24,9 +24,10 @@ PREFIX_SYM_JSON_ATTRS = 'attrs'
 PREFIX_SYM_JSON_HEADS = 'heads'
 PREFIX_SYM_JSON_ARG_NODES = 'arg_nodes'
 
-# binary convolution and dense layer
+# standard convolution and dense layer
 PREFIX_DENSE = 'FullyConnected'
 PREFIX_CONVOLUTION = 'Convolution'
+# binary convolution and dense layer
 binary_layer_replacements = { 
 	PREFIX_CONVOLUTION : 'BinaryInferenceConvolution',
 	PREFIX_DENSE 	   : 'BinaryInferenceFullyConnected'

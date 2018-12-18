@@ -83,9 +83,9 @@ def convert_symbol_json(symbol):
             
             # adapt qconv and qdense ops
             foundq = False
+            retain = False
             if PREFIX_Q_CONV in op['name'] or PREFIX_Q_DENSE in op['name']:
-                foundq = True
-                retain = False
+                foundq = True                
                 # 2.for qconv and qdense, we only retain  'weight', 'bias' and 'fwd'                                
                 for p in retained_ops_patterns_in_conv_dense:
                     if p in op['name']:
@@ -182,7 +182,7 @@ def convert_params(model_dict, bits):
             logging.info('{}:{}:{}'.format(tp, name, v.shape[0]))            
             if v.shape[0] % bits != 0: # dim of input has to be divisible by bits (32 or 64)
                 raise Exception('operator: "{}" has an invalid input dim: "{}", which is not divisible by 32 (or 64)'
-                                .format(name, v.shape[1]))            
+                                .format(name, v.shape[0]))            
             size_binary_col = int(v.size / bits)
             binary_col = np.zeros((size_binary_col), dtype=get_numpy_dtype[bits])
             binary_col =mx.nd.array(get_binary_col(v.reshape((-1)), binary_col, v.shape[0], v.shape[1], bits), 
