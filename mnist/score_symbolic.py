@@ -125,7 +125,7 @@ def classify(val_img, model_prefix, epoch_num, train_img, train_lbl, val_lbl, ba
              label_shapes=val_iter.provide_label)
     model.set_params(arg_params, aux_params)
 
-    n = randint(0,batch_size)
+    n = randint(0,batch_size-1)
     plt.imshow(val_img[n], cmap='Greys_r')
     plt.axis('off')
     plt.show()
