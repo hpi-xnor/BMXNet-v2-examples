@@ -38,7 +38,7 @@ def get_binary_row(nd_row, binary_row, nd_size, bits_per_binary_word):
             if nd_row[i+j] >= 0:
                 sign = 1
             rvalue = bit_set(rvalue, j, sign)
-            j += 1        
+            j += 1
         
         # print('{0:64b}'.format(rvalue))
         
@@ -80,7 +80,7 @@ def get_binary_col(nd_col, binary_col, dim_n, dim_k, bits_per_binary_word):
                 sign = 0
                 if nd_col[(y*bits_per_binary_word+b)*dim_k + x] >= 0:
                     sign = 1
-                bit_set(rvalue, b, sign)
+                rvalue = bit_set(rvalue, b, sign)
                 b+=1
             binary_col[y*dim_k + x] = rvalue
             x+=1
