@@ -65,7 +65,7 @@ def get_parser(training=True):
                             help='do not train, only do other things, e.g. output args and plot network')
         train.add_argument('--epochs', type=int, default=120,
                             help='number of training epochs.')
-        train.add_argument('--initialization', type=str, choices=["default", "gaussian"], default="gaussian",
+        train.add_argument('--initialization', type=str, choices=["default", "gaussian", "msraprelu_avg", "msraprelu_in"], default="gaussian",
                             help='weight initialization, default is xavier with magnitude 2.')
         train.add_argument('--kvstore', type=str, default='device',
                             help='kvstore to use for trainer/module.')
@@ -221,6 +221,10 @@ def get_initializer():
         return mx.init.Xavier(magnitude=2)
     if opt.initialization == "gaussian":
         return mx.init.Xavier(rnd_type="gaussian", factor_type="in", magnitude=2)
+    if opt.initialization == "msraprelu_avg":
+        return mx.init.MSRAPrelu()
+    if opt.initialization == "msraprelu_in":
+        return mx.init.MSRAPrelu(factor_type="in")
 
 
 def get_data_iters(opt, num_workers=1, rank=0):
