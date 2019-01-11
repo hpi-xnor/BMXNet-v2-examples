@@ -7,6 +7,7 @@ import argparse
 import matplotlib.pyplot as plt
 import mxnet as mx
 import logging
+import time
 
 from random import randint
 from math import sqrt
@@ -96,8 +97,12 @@ def val(model_prefix, epoch_num, train_img, val_img, train_lbl, val_lbl, batch_s
     
     logging.info('Evaluating...')
     metric = mx.metric.Accuracy()
-    score = model.score(val_iter, metric)
+
+    tic = time.time()
+    score = model.score(val_iter, metric)    
+    speed = 10000 / (time.time() - tic)
     logging.info (score)
+    logging.info('Finished with %f images per second', speed)
 
 def classify(val_img, model_prefix, epoch_num, train_img, train_lbl, val_lbl, batch_size, gpu_id=0):
     '''
