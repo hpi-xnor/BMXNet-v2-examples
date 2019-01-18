@@ -92,6 +92,8 @@ def get_parser(training=True):
                             help='save progress and ETA to this file')
         train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
+        train.add_argument('--resume-states', type=str, default='',
+                            help='path of trainer state to load from.')
         train.add_argument('--save-frequency', default=None, type=int,
                             help='epoch frequence to save model, best model will always be saved')
         train.add_argument('--seed', type=int, default=123,
@@ -342,6 +344,8 @@ def train(opt, ctx):
     train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
     net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
+    if opt.resume_states is not '':
+        trainer.load_states(opt.resume_states)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # dummy forward pass to initialize binary layers
