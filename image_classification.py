@@ -274,16 +274,20 @@ def update_learning_rate(lr, trainer, epoch, ratio, steps):
     return trainer
 
 
-def save_checkpoint(epoch, top1, best_acc):
+def save_checkpoint(trainer, epoch, top1, best_acc):
     if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0:
-        fname = os.path.join(opt.prefix, '%s_%sbit_%04d_acc_%.4f.params' % (opt.model, opt.bits, epoch, top1))
-        net.save_parameters(fname)
-        logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
+        fname = os.path.join(opt.prefix, '%s_%sbit_%04d_acc_%.4f.{}' % (opt.model, opt.bits, epoch, top1))
+        net.save_parameters(fname.format("params"))
+        trainer.save_states(fname.format("states"))
+        logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f',
+                    epoch, fname.format("{params,states}"), top1)
     if top1 > best_acc[0]:
         best_acc[0] = top1
-        fname = os.path.join(opt.prefix, '%s_%sbit_best.params' % (opt.model, opt.bits))
-        net.save_parameters(fname)
-        logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
+        fname = os.path.join(opt.prefix, '%s_%sbit_best.{}' % (opt.model, opt.bits))
+        net.save_parameters(fname.format("params"))
+        trainer.save_states(fname.format("states"))
+        logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f',
+                    epoch, fname.format("{params,states}"), top1)
 
 
 def get_dummy_data(opt, ctx):
@@ -450,7 +454,7 @@ def train(opt, ctx):
             summary_writer.add_scalar("validation-%s" % name[1], val_acc[1], global_step=global_step)
 
         # save model if meet requirements
-        save_checkpoint(epoch, val_acc[0], best_acc)
+        save_checkpoint(trainer, epoch, val_acc[0], best_acc)
     if num_epochs > 1:
         print('Average epoch time: {}'.format(float(total_time)/(num_epochs - 1)))
 
