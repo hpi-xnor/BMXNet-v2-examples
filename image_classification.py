@@ -23,6 +23,7 @@ from graphviz import ExecutableNotFound
 from mxnet import gluon, lr_scheduler
 from mxnet import profiler
 import binary_models
+from util.log_progress import log_progress
 from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
 from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
@@ -87,6 +88,8 @@ def get_parser(training=True):
         train.add_argument('--profile', action='store_true',
                             help='Option to turn on memory profiling for front-end, and prints out '
                                  'the memory usage by python function at the end.')
+        train.add_argument('--progress', type=str, default="",
+                            help='save progress and ETA to this file')
         train.add_argument('--resume', type=str, default='',
                             help='path to saved weight where you want resume')
         train.add_argument('--save-frequency', default=None, type=int,
@@ -113,6 +116,8 @@ def get_parser(training=True):
                         help='data type, float32 or float16 if applicable')
     parser.add_argument('--gpus', type=str, default='',
                         help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
+    parser.add_argument('--cpu', action="store_const", dest="gpus", const="",
+                        help='to explicitly use cpu')
     parser.add_argument('--mean-subtraction', action="store_true",
                         help='whether to subtract ImageNet mean from data')
     parser.add_argument('--mode', type=str, choices=["symbolic", "imperative", "hybrid"], default="imperative",
@@ -377,6 +382,7 @@ def train(opt, ctx):
     total_time = 0
     num_epochs = 0
     best_acc = [0]
+    epoch_time = -1
     for epoch in range(opt.start_epoch, opt.epochs):
         trainer = update_learning_rate(opt.lr, trainer, epoch, opt.lr_factor, lr_steps)
         tic = time.time()
@@ -403,6 +409,7 @@ def train(opt, ctx):
                 name, acc = metric.get()
                 logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f, %s=%f'%(
                     epoch, i, batch_size/(time.time()-btic), name[0], acc[0], name[1], acc[1]))
+                log_progress(get_num_examples(opt.dataset), opt, epoch, i, time.time()-tic, epoch_time)
                 if summary_writer:
                     summary_writer.add_scalar("batch-%s" % name[0], acc[0], global_step=global_step)
                     summary_writer.add_scalar("batch-%s" % name[1], acc[1], global_step=global_step)
