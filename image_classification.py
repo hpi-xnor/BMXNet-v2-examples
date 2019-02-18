@@ -165,11 +165,7 @@ def get_model(opt, ctx):
     if opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    if opt.model.startswith('resnet') or opt.model.startswith('binet'):
-        if opt.dataset == "cifar10":
-            kwargs['thumbnail'] = True
-        # kwargs['clip_threshold'] = opt.clip_threshold
-    if opt.model.startswith('densenet') and opt.dataset == "cifar10":
+    if any(opt.model.startswith(name) for name in ['resnet', 'binet', 'densenet']) and get_shape(opt.dataset)[2] < 50:
         kwargs['thumbnail'] = True
 
     for model_parameter in binary_models.get_model_parameters():
