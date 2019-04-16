@@ -17,6 +17,7 @@
 
 from __future__ import division
 
+import sys
 from functools import reduce
 from operator import mul
 
@@ -36,6 +37,8 @@ parser.add_argument('--params', type=str, required=True,
                     help='the .params with the model weights')
 parser.add_argument('--verbose', action="store_true",
                     help='prints information about the model before evaluating')
+parser.add_argument('--limit-eval', type=int, metavar="N", default=-1,
+                    help="stop evaluation after N iterations")
 opt, unknown_args = parser.parse_known_args()
 
 opt.augmentation_level = 0
@@ -93,10 +96,14 @@ if __name__ == '__main__':
     ctx = context[0]
 
     if opt.mode == "symbolic":
-        net = gluon.nn.SymbolBlock.imports(opt.symbol, ['data'], param_file=opt.params, ctx=ctx)
-        prepare_net(opt, net)
-        # TODO: remove Softmax from json
-        pass
+        symbol_file = "{}-symbol.json".format(opt.params[:-12])
+        if not os.path.isfile(symbol_file):
+            print("Symbol file not found, expected at {}".format(symbol_file))
+            sys.exit(1)
+        net = gluon.nn.SymbolBlock.imports(symbol_file, ['data'], param_file=opt.params, ctx=ctx)
+        if "binarized" not in opt.params:
+            print("Warning: No 'binarized' in param name, replacing weight values with -1, +1.")
+            prepare_net(opt, net)
     else:
         opt.resume = opt.params
         net, _, _ = get_model(opt, ctx)
@@ -113,7 +120,14 @@ if __name__ == '__main__':
 
     _, val_data = get_data_iters(opt)
 
-    for i, batch in enumerate(tqdm.tqdm(val_data, total=50000 // opt.batch_size)):
+    val_samples = 50000
+    expected_its = val_samples // opt.batch_size
+    if opt.limit_eval >= 0:
+        expected_its = opt.limit_eval
+
+    for i, batch in enumerate(tqdm.tqdm(val_data, total=expected_its)):
+        if opt.limit_eval == i:
+            break
         padding = 0
         if opt.dataset == "imagenet" and num_correct + num_wrong + opt.batch_size >= 50000:
             # fix validation "padding"

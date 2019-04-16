@@ -150,6 +150,7 @@ def _load_model(opt):
 
 def _get_scaling_legacy(opt):
     model_name, *modifier = opt.model.split('-')
+    opt.model = model_name
     scaling = ""
     if 'binet_scaled' in modifier:
         scaling = "binet"
@@ -165,7 +166,7 @@ def get_model(opt, ctx):
     if opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    if any(opt.model.startswith(name) for name in ['resnet', 'binet', 'densenet']) and get_shape(opt.dataset)[2] < 50:
+    if any(opt.model.startswith(name) for name in ['resnet', 'binet', 'densenet']) and get_shape(opt)[2] < 50:
         kwargs['thumbnail'] = True
 
     for model_parameter in binary_models.get_model_parameters():
@@ -181,7 +182,7 @@ def get_model(opt, ctx):
         with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, approximation=approximation,
                                               grad_cancel=opt.clip_threshold, activation=opt.activation_method,
                                               weight_quantization=opt.weight_quantization):
-            net = binary_models.get_model(model_name, **kwargs)
+            net = binary_models.get_model(opt.model, **kwargs)
 
     if opt.resume:
         net.load_parameters(opt.resume)
@@ -207,13 +208,13 @@ def get_num_examples(dataset):
     return {'mnist': 60000, 'cifar10': 50000, 'imagenet': 1281167, 'dummy': 1000}[dataset]
 
 
-def get_shape(dataset):
-    if dataset == 'mnist':
+def get_shape(opt):
+    if opt.dataset == 'mnist':
         return (1, 1, 28, 28)
-    elif dataset == 'cifar10':
+    elif opt.dataset == 'cifar10':
         return (1, 3, 32, 32)
-    elif dataset == 'imagenet' or dataset == 'dummy':
-        return (1, 3, 299, 299) if model_name == 'inceptionv3' else (1, 3, 224, 224)
+    elif opt.dataset == 'imagenet' or opt.dataset == 'dummy':
+        return (1, 3, 299, 299) if opt.model == 'inceptionv3' else (1, 3, 224, 224)
 
 
 def get_initializer():
@@ -293,7 +294,7 @@ def save_checkpoint(trainer, epoch, top1, best_acc):
 
 
 def get_dummy_data(opt, ctx):
-    data_shape = get_shape(opt.dataset)
+    data_shape = get_shape(opt)
     shapes = ((1,) + data_shape[1:], (1,))
     return [mx.nd.array(np.zeros(shape), ctx=ctx) for shape in shapes]
 
@@ -363,8 +364,8 @@ def train(opt, ctx):
         sym = net(x)
         with open('{}.txt'.format(opt.plot_network), 'w') as f:
             with redirect_stdout(f):
-                mx.viz.print_summary(sym, shape={"data": get_shape(dataset)}, quantized_bitwidth=opt.bits)
-        a = mx.viz.plot_network(sym, shape={"data": get_shape(dataset)})
+                mx.viz.print_summary(sym, shape={"data": get_shape(opt)}, quantized_bitwidth=opt.bits)
+        a = mx.viz.plot_network(sym, shape={"data": get_shape(opt)})
         try:
             a.render('{}.gv'.format(opt.plot_network))
         except OSError as e:
@@ -489,8 +490,8 @@ def train_symbolic(opt, ctx):
         if opt.plot_network is not None:
             with open('{}.txt'.format(opt.plot_network), 'w') as f:
                 with redirect_stdout(f):
-                    mx.viz.print_summary(out, shape={"data": get_shape(dataset)}, quantized_bitwidth=opt.bits)
-        a = mx.viz.plot_network(out, shape={"data": get_shape(dataset)})
+                    mx.viz.print_summary(out, shape={"data": get_shape(opt)}, quantized_bitwidth=opt.bits)
+        a = mx.viz.plot_network(out, shape={"data": get_shape(opt)})
         try:
             a.render('{}.gv'.format(opt.plot_network))
         except ExecutableNotFound as e:
@@ -582,7 +583,6 @@ if __name__ == '__main__':
         opt.save_frequency = get_default_save_frequency(opt.dataset)
     logger.info('Starting new image-classification task:, %s', opt)
     mx.random.seed(opt.seed)
-    model_name = opt.model
     batch_size, dataset, classes = opt.batch_size, opt.dataset, get_num_classes(opt.dataset)
     context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
     if opt.dry_run:
