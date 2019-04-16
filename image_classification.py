@@ -27,6 +27,7 @@ from util.log_progress import log_progress
 from mxnet import autograd
 from mxnet.test_utils import get_mnist_iterator
 from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
+from mxnet.gluon import nn
 from contextlib import redirect_stdout
 import numpy as np
 
@@ -104,6 +105,8 @@ def get_parser(training=True):
                             help='weight decay rate. default is 0.0.')
         train.add_argument('--write-summary', type=str, default=None,
                             help='write tensorboard summaries to this path')
+        train.add_argument('--clip-threshold-steps', type=csv_args_dict, default="",
+                            help='lower clip threshold to this at certain times, k:v pairs (eg. 10:1.5,20:1.0)')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
     parser.add_argument('--builtin-profiler', type=int, default=0,
@@ -140,6 +143,12 @@ def get_parser(training=True):
 
 def get_model_path(opt):
     return os.path.join(opt.prefix, 'image-classifier-%s' % opt.model)
+
+
+def csv_args_dict(value):
+    if value == "":
+        return {}
+    return {int(k): float(v) for k, v in [pair.split(":") for pair in value.split(",")]}
 
 
 def _load_model(opt):
@@ -277,6 +286,26 @@ def update_learning_rate(lr, trainer, epoch, ratio, steps):
     return trainer
 
 
+def update_clip_threshold(current_clip_threshold, epoch, steps, q_activations,
+                          check_previous_epochs=False, check_only=False):
+    """Set the learning rate to the initial value decayed by ratio every N epochs."""
+    new_clip_threshold = current_clip_threshold
+
+    if check_previous_epochs:
+        for i in range(0, epoch):
+            new_clip_threshold = update_clip_threshold(current_clip_threshold, i, steps, check_only=True)
+
+    if epoch in steps:
+        new_clip_threshold = steps[epoch]
+
+    if new_clip_threshold != current_clip_threshold and not check_only:
+        for q_act in q_activations:
+            q_act.threshold = new_clip_threshold
+        logger.info('[Epoch %d] Change clip threshold to %f', epoch, new_clip_threshold)
+
+    return new_clip_threshold
+
+
 def save_checkpoint(trainer, epoch, top1, best_acc):
     if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0:
         fname = os.path.join(opt.prefix, '%s_%sbit_%04d_acc_%.4f.{}' % (opt.model, opt.bits, epoch, top1))
@@ -338,6 +367,14 @@ def get_optimizer(opt, with_scheduler=False):
     return opt.optimizer, params
 
 
+def get_blocks(net, search_for_type, result=()):
+    for _, child in net._children.items():
+        if isinstance(child, search_for_type):
+            return result + (child,)
+        result = get_blocks(child, search_for_type, result=result)
+    return result
+
+
 def train(opt, ctx):
     if isinstance(ctx, mx.Context):
         ctx = [ctx]
@@ -392,8 +429,13 @@ def train(opt, ctx):
     num_epochs = 0
     best_acc = [0]
     epoch_time = -1
+    q_activations = get_blocks(net, nn.QActivation)
+    update_clip_threshold(opt.clip_threshold, opt.start_epoch, opt.clip_threshold_steps, q_activations,
+                          check_previous_epochs=True)
     for epoch in range(opt.start_epoch, opt.epochs):
         trainer = update_learning_rate(opt.lr, trainer, epoch, opt.lr_factor, lr_steps)
+        if epoch != opt.start_epoch:
+            update_clip_threshold(opt.clip_threshold, epoch, opt.clip_threshold_steps, q_activations)
         tic = time.time()
         train_data.reset()
         metric.reset()
