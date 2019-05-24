@@ -395,6 +395,9 @@ def train(opt, ctx):
         data, label = get_dummy_data(opt, ctx[0])
         output = net(data)
 
+    if opt.mode == 'hybrid':
+        net.hybridize()
+
     # set batch norm wd to zero
     params = net.collect_params('.*batchnorm.*')
     for key in params:
@@ -600,8 +603,6 @@ def main():
     if opt.mode == 'symbolic':
         train_symbolic(opt, context)
     else:
-        if opt.mode == 'hybrid':
-            net.hybridize()
         train(opt, context)
     if opt.builtin_profiler > 0:
         profiler.set_state('stop')
