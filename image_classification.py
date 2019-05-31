@@ -105,7 +105,7 @@ def get_parser(training=True):
                             help='weight decay rate. default is 0.0.')
         train.add_argument('--write-summary', type=str, default=None,
                             help='write tensorboard summaries to this path')
-        train.add_argument('--clip-threshold-steps', type=csv_args_dict, default="",
+        train.add_argument('--clip-threshold-steps', type=str, default="",
                             help='lower clip threshold to this at certain times, k:v pairs (eg. 10:1.5,20:1.0)')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
@@ -368,10 +368,14 @@ def get_optimizer(opt, with_scheduler=False):
 
 
 def get_blocks(net, search_for_type, result=()):
+    """
+    Returns a tuple containing all layer objects of type search_for_type in net
+    """
     for _, child in net._children.items():
         if isinstance(child, search_for_type):
-            return result + (child,)
-        result = get_blocks(child, search_for_type, result=result)
+            result = result + (child,)
+        else:
+            result = get_blocks(child, search_for_type, result=result)
     return result
 
 
@@ -624,6 +628,7 @@ if __name__ == '__main__':
     if opt.save_frequency is None:
         opt.save_frequency = get_default_save_frequency(opt.dataset)
     logger.info('Starting new image-classification task:, %s', opt)
+    opt.clip_threshold_steps = csv_args_dict(opt.clip_threshold_steps)
     mx.random.seed(opt.seed)
     batch_size, dataset, classes = opt.batch_size, opt.dataset, get_num_classes(opt.dataset)
     context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
