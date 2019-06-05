@@ -293,7 +293,7 @@ def update_clip_threshold(current_clip_threshold, epoch, steps, q_activations,
 
     if check_previous_epochs:
         for i in range(0, epoch):
-            new_clip_threshold = update_clip_threshold(current_clip_threshold, i, steps, check_only=True)
+            new_clip_threshold = update_clip_threshold(current_clip_threshold, i, steps, q_activations, check_only=True)
 
     if epoch in steps:
         new_clip_threshold = steps[epoch]
