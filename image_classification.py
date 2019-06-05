@@ -391,9 +391,8 @@ def train(opt, ctx):
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # dummy forward pass to initialize binary layers
-    with autograd.record():
-        data, label = get_dummy_data(opt, ctx[0])
-        output = net(data)
+    data, _ = get_dummy_data(opt, ctx[0])
+    _ = net(data)
 
     if opt.mode == 'hybrid':
         net.hybridize()
@@ -515,9 +514,8 @@ def train(opt, ctx):
     if opt.mode != 'hybrid':
         net.hybridize()
         # dummy forward pass to save model
-        with autograd.record():
-            data, label = get_dummy_data(opt, ctx[0])
-            output = net(data)
+        data, _ = get_dummy_data(opt, ctx[0])
+        _ = net(data)
     net.export(os.path.join(opt.prefix, "image-classifier-{}bit".format(opt.bits)), epoch=0)
 
 
