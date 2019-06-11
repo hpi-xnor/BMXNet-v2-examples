@@ -525,9 +525,9 @@ def train_symbolic(opt, ctx):
 
     # dummy forward pass with gluon to initialize binary layers
     if not opt.start_epoch > 0:
-        with autograd.record():
-            data, label = get_dummy_data(opt, context[0])
-            output = net(data)
+        # dummy forward pass to initialize binary layers
+        data, _ = get_dummy_data(opt, ctx[0])
+        _ = net(data)
 
         data = mx.sym.var('data')
         out = net(data)
