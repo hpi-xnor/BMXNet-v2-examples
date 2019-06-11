@@ -239,31 +239,32 @@ class ResNetE1(ResNetE):
         super(ResNetE1, self).__init__(channels, classes, use_fp, use_pooling, slices, **kwargs)
         assert len(layers) == len(channels) - 1
 
-        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-        if thumbnail:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
-                                        use_bias=False))
-            # MXNet has a batch norm here, binary resnet performs better without
+        with self.name_scope():
+            self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
+            if thumbnail:
+                self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
+                                            use_bias=False))
+                # MXNet has a batch norm here, binary resnet performs better without
+                # self.features.add(nn.BatchNorm())
+            else:
+                self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
+                self.features.add(nn.BatchNorm())
+                self.features.add(nn.Activation('relu'))
+                self.features.add(nn.MaxPool2D(3, 2, 1))
+                self.features.add(nn.BatchNorm())
+
+            for i, num_layer in enumerate(layers):
+                stride = 1 if i == 0 else 2
+                self.features.add(
+                    self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=channels[i]))
+
+            # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
+            # but we need the relu, since we do not have activition in blocks
             # self.features.add(nn.BatchNorm())
-        else:
-            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
-            self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
-            self.features.add(nn.MaxPool2D(3, 2, 1))
-            self.features.add(nn.BatchNorm())
 
-        for i, num_layer in enumerate(layers):
-            stride = 1 if i == 0 else 2
-            self.features.add(
-                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=channels[i]))
-
-        # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
-        # but we need the relu, since we do not have activition in blocks
-        # self.features.add(nn.BatchNorm())
-        self.features.add(nn.Activation('relu'))
-
-        self.features.add(nn.GlobalAvgPool2D())
-        self.features.add(nn.Flatten())
+            self.features.add(nn.GlobalAvgPool2D())
+            self.features.add(nn.Flatten())
 
 
 class ResNetE2(ResNetE):
@@ -290,29 +291,27 @@ class ResNetE2(ResNetE):
         super(ResNetE2, self).__init__(channels, classes, use_fp, use_pooling, slices, **kwargs)
         assert len(layers) == len(channels) - 1
 
-        # self.features.add(nn.BatchNorm(scale=False, center=False))
-        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-        if thumbnail:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
-        else:
-            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
-            # fix_gamma=False missing ?
+        with self.name_scope():
+            self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
+            if thumbnail:
+                self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
+            else:
+                self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
+                self.features.add(nn.BatchNorm())
+                self.features.add(nn.Activation('relu'))
+                self.features.add(nn.MaxPool2D(3, 2, 1))
+
+            in_channels = channels[0]
+            for i, num_layer in enumerate(layers):
+                stride = 1 if i == 0 else 2
+                self.features.add(
+                    self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels))
+                in_channels = channels[i + 1]
+
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
-            self.features.add(nn.MaxPool2D(3, 2, 1))
-
-        in_channels = channels[0]
-        for i, num_layer in enumerate(layers):
-            stride = 1 if i == 0 else 2
-            self.features.add(
-                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels))
-            in_channels = channels[i + 1]
-
-        # fix_gamma=False missing ?
-        self.features.add(nn.BatchNorm())
-        self.features.add(nn.Activation('relu'))
-        self.features.add(nn.GlobalAvgPool2D())
-        self.features.add(nn.Flatten())
+            self.features.add(nn.GlobalAvgPool2D())
+            self.features.add(nn.Flatten())
 
 
 class ResNetEParameters(ModelParameters):
