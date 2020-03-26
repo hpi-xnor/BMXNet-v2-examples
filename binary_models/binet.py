@@ -20,6 +20,8 @@
 """BiNets, implemented in Gluon."""
 from __future__ import division
 
+from binary_models.common_layers import add_initial_layers
+
 __all__ = ['Binet',
            'BasicBlockV1',
            'binet18', 'binet34',
@@ -106,11 +108,11 @@ class Binet(HybridBlock):
         Numbers of channels in each block. Length should be one larger than layers list.
     classes : int, default 1000
         Number of classification classes.
-    thumbnail : bool, default False
-        Enable thumbnail. Needed for small input images like cifar.
+    initial_layers : bool, default imagenet
+        Configure the initial layers.
     """
 
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=True, bits=None, bits_a=None,
+    def __init__(self, block, layers, channels, classes=1000, initial_layers="imagenet", bits=None, bits_a=None,
                  clip_threshold=1.0,  **kwargs):
         super(Binet, self).__init__(**kwargs)
         assert len(layers) == len(channels) - 1
@@ -121,14 +123,7 @@ class Binet(HybridBlock):
 
         self.features = nn.HybridSequential(prefix='')
         self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-        if thumbnail:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
-                                        use_bias=False))
-        else:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=7, strides=2, padding=3, use_bias=False))
-            self.features.add(nn.BatchNorm())
-            self.features.add(nn.Activation('relu'))
-            self.features.add(nn.MaxPool2D(3, 2, 1))
+        add_initial_layers(initial_layers, self.features, channels[0])
 
         for i, num_layer in enumerate(layers):
             stride = 1 if i == 0 else 2

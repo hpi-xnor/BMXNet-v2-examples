@@ -78,8 +78,9 @@ from .alexnet import *
 from .binet import *
 
 from .densenet import *
-from .densenet_x import *
-from .densenet_y import *
+
+from .meliusnet import *
+from .naivenet import *
 
 from .inception import *
 
@@ -94,7 +95,7 @@ from .mobilenet import *
 
 
 def get_model_parameters():
-    return [DenseNetParameters(), VGGParameters(), ResNetEParameters()]
+    return [DenseNetParameters(), MeliusNetParameters(), VGGParameters(), ResNetEParameters()]
 
 
 def get_model(name, **kwargs):
@@ -148,22 +149,18 @@ def get_model(name, **kwargs):
               'vgg19_bn': vgg19_bn,
               'alexnet': alexnet,
               'densenet_flex': densenet_flex,
-              'densenet13': densenet13,
-              'densenet21': densenet21,
+              'densenet28': densenet28,
               'densenet37': densenet37,
-              'densenet69': densenet69,
-              'densenet121': densenet121,
-              'densenet161': densenet161,
-              'densenet169': densenet169,
-              'densenet201': densenet201,
-              'densenet13_x': densenet13_x,
-              'densenet21_x': densenet21_x,
-              'densenet37_x': densenet37_x,
-              'densenet69_x': densenet69_x,
-              'densenet13_y': densenet13_y,
-              'densenet21_y': densenet21_y,
-              'densenet37_y': densenet37_y,
-              'densenet69_y': densenet69_y,
+              'densenet45': densenet45,
+              'meliusnet_flex': meliusnet_flex,
+              'meliusnet22': meliusnet22,
+              'meliusnet29': meliusnet29,
+              'meliusnet42': meliusnet42,
+              'meliusnet59': meliusnet59,
+              'meliusnet_a': meliusnet_a,
+              'meliusnet_b': meliusnet_b,
+              'meliusnet_c': meliusnet_c,
+              'naivenet17': naivenet17,
               'squeezenet1.0': squeezenet1_0,
               'squeezenet1.1': squeezenet1_1,
               'inceptionv3': inception_v3,
