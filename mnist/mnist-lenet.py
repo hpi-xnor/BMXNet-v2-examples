@@ -20,6 +20,8 @@ from __future__ import print_function
 
 import argparse
 import logging
+from contextlib import redirect_stdout
+
 logging.basicConfig(level=logging.DEBUG)
 
 import numpy as np
@@ -55,7 +57,7 @@ num_fc = 1000
 num_outputs = 10
 
 # define network
-net = nn.HybridSequential(prefix="")
+net = nn.HybridSequential(prefix="lenet_")
 with net.name_scope():
     if opt.bits == 1:
         net.add(gluon.nn.Conv2D(channels=num_channels_conv, kernel_size=5))
@@ -139,10 +141,8 @@ def train(epochs, ctx):
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # do forward pass with dummy data without backwards pass to initialize binary layers
-    with autograd.record():
-        data, label = dummy_data(ctx)
-        output = net(data)
-        L = loss(output, label)
+    data, _ = dummy_data(ctx)
+    output = net(data)
 
     if opt.hybridize:
         net.hybridize()
@@ -198,10 +198,8 @@ def train(epochs, ctx):
 
     if not opt.hybridize:
         net.hybridize()
-        with autograd.record():
-            data, label = dummy_data(ctx)
-            output = net(data)
-            L = loss(output, label)
+        data, _ = dummy_data(ctx)
+        output = net(data)
     net.export("mnist-lenet-{}-{}-bit".format("symbolic" if opt.hybridize else "gluon", opt.bits), epoch=1)
     sw.add_graph(net)
     sw.close()

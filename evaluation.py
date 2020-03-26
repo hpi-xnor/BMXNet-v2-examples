@@ -17,33 +17,18 @@
 
 from __future__ import division
 
+import math
 import sys
 from functools import reduce
 from operator import mul
 
-import math
+import mxnet as mx
 import numpy as np
-
 import tqdm as tqdm
 from mxnet import gluon
 
-from datasets.data import *
-
-from image_classification import get_parser, get_data_iters, get_model
-
-
-parser = get_parser(False)
-parser.add_argument('--params', type=str, required=True,
-                    help='the .params with the model weights')
-parser.add_argument('--verbose', action="store_true",
-                    help='prints information about the model before evaluating')
-parser.add_argument('--limit-eval', type=int, metavar="N", default=-1,
-                    help="stop evaluation after N iterations")
-opt, unknown_args = parser.parse_known_args()
-
-opt.augmentation_level = 0
-opt.start_epoch = 0
-opt.dry_run = False
+from image_classification import get_data_iters, get_model
+from util.arg_parser import get_parser, set_dummy_training_args
 
 
 def convert_size(size_bytes):
@@ -92,6 +77,12 @@ def prepare_net(opt, net, gluon=False):
 
 
 if __name__ == '__main__':
+    parser = get_parser(training=False)
+    opt, unknown_args = parser.parse_known_args()
+
+    set_dummy_training_args(opt)
+    opt.resume = opt.params
+
     context = [mx.gpu(int(i)) for i in opt.gpus.split(',')] if opt.gpus.strip() else [mx.cpu()]
     ctx = context[0]
 
@@ -105,12 +96,12 @@ if __name__ == '__main__':
             print("Warning: No 'binarized' in param name, replacing weight values with -1, +1.")
             prepare_net(opt, net)
     else:
-        opt.resume = opt.params
         net, _, _ = get_model(opt, ctx)
         net.collect_params().reset_ctx(ctx)
         prepare_net(opt, net, True)
 
     # from PIL import ImageFont, Image, ImageDraw
+    # from datasets.imagenet import MEAN_RGB, STD_RGB
     # font = ImageFont.truetype("/usr/share/fonts/truetype/hack/Hack-Regular.ttf", size=20)
 
     params1 = {k: v.data().asnumpy().copy() for k, v in net.collect_params().items()}
@@ -118,7 +109,7 @@ if __name__ == '__main__':
     num_correct = 0
     num_wrong = 0
 
-    _, val_data = get_data_iters(opt)
+    _, val_data, batch_fn = get_data_iters(opt)
 
     val_samples = 50000
     expected_its = val_samples // opt.batch_size
@@ -132,10 +123,15 @@ if __name__ == '__main__':
         if opt.dataset == "imagenet" and num_correct + num_wrong + opt.batch_size >= 50000:
             # fix validation "padding"
             padding = (num_correct + num_wrong + opt.batch_size) - 50000
-        data = mx.nd.array(batch.data[0], ctx=ctx)
+
+        # we only use one GPU (or the CPU)
+        data, label = batch_fn(batch, ctx=[ctx])
+        data = data[0]
+        label = label[0]
+
         result = net(data)
         probabilities = result.softmax().asnumpy()
-        ground_truth = batch.label[0].asnumpy()
+        ground_truth = label.asnumpy()
 
         predictions = np.argmax(probabilities, axis=1)
         likeliness = np.max(probabilities, axis=1)
@@ -148,13 +144,21 @@ if __name__ == '__main__':
         num_wrong += np.sum(predictions != ground_truth)
 
         # from datasets.imagenet_classes import CLASSES
-        # for i in range(opt.batch_size):
-        #     transformed = data[i].asnumpy().astype(np.uint8).transpose(1, 2, 0)
+        # for j in range(opt.batch_size):
+        #     mean = mx.ndarray.array(MEAN_RGB, ctx=ctx).reshape([3, 1, 1])
+        #     std = mx.ndarray.array(STD_RGB, ctx=ctx).reshape([3, 1, 1])
+        #     data_unnormalized = (data[j] * std) + mean
+        #     transformed = data_unnormalized.asnumpy().astype(np.uint8).transpose(1, 2, 0)
+        #     canvas = Image.new("RGB", (600, 650))
         #     image = Image.fromarray(transformed, "RGB")
-        #     draw = ImageDraw.ImageDraw(image)
-        #     draw.text((0, 200), "{:.0f}%: {}".format(likeliness[i] * 100, CLASSES[predictions[i]]), font=font,
-        #               fill="green" if predictions[i] == ground_truth[i] else "red")
-        #     image.show()
+        #     image = image.resize((600, 600))
+        #     canvas.paste(image, (0, 50))
+        #     draw = ImageDraw.ImageDraw(canvas)
+        #     draw.text((0, 0),  "Actual:     {}".format(CLASSES[ground_truth[j]]), font=font,
+        #               fill="white")
+        #     draw.text((0, 25), "Prediction: {} ({:.0f}%)".format(CLASSES[predictions[j]], likeliness[j] * 100), font=font,
+        #               fill="green" if predictions[j] == ground_truth[j] else "red")
+        #     canvas.save("predictions/{}.png".format(j + i * opt.batch_size))
 
     params2 = {k: v.data().asnumpy().copy() for k, v in net.collect_params().items()}
     for key in params1:

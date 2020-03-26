@@ -18,50 +18,46 @@
 # coding: utf-8
 # pylint: disable= arguments-differ
 """DenseNet, implemented in Gluon."""
+from mxnet.gluon import HybridBlock, nn
+
 from binary_models.basenet_dense import *
+from binary_models.meliusnet import ImprovementBlock
 
-__all__ = ['DenseNet', 'DenseNetParameters',
-           'densenet_flex', 'densenet28', 'densenet37', 'densenet45']
+__all__ = ['NaiveNet', 'NaiveNetParameters',
+           'naivenet_flex', 'naivenet17']
 
 
-class DenseNet(BaseNetDense):
+class NaiveNet(BaseNetDense):
     def _add_base_block_structure(self, dilation):
         self._add_dense_block(dilation)
+        self.current_stage.add(
+            ImprovementBlock(self.num_features, self.num_features, dilation=dilation, prefix='')
+        )
 
 
-class DenseNetParameters(BaseNetDenseParameters):
+class NaiveNetParameters(BaseNetDenseParameters):
     def __init__(self):
-        super(DenseNetParameters, self).__init__('DenseNet')
+        super(NaiveNetParameters, self).__init__('NaiveNet')
 
     def _is_it_this_model(self, model):
-        return model.startswith('densenet')
+        return model.startswith('naivenet')
 
 
 # Specification
-# block_config, reduction_factor, downsampling
-densenet_spec = {
-    None:  (None,           [1 / 2,   1 / 2,   1 / 2],   DOWNSAMPLE_STRUCT),
-    '28':  ([6, 6, 6, 5],   [1 / 2.7, 1 / 2.7, 1 / 2.2], DOWNSAMPLE_STRUCT),
-    '37':  ([6, 8, 12, 6],  [1 / 3.3, 1 / 3.3, 1 / 4],   DOWNSAMPLE_STRUCT),
-    '45':  ([6, 12, 14, 8], [1 / 2.7, 1 / 3.3, 1 / 4],   DOWNSAMPLE_STRUCT),
+naivenet_spec = {
+    # name: block_config,     reduction_factors,                  downsampling
+    None:   (None,            [1 / 2,     1 / 2,     1 / 2],      DOWNSAMPLE_STRUCT),
+    '17':   ([3, 3, 3, 3],    [128 / 256, 160 / 320, 192 / 352],  DOWNSAMPLE_STRUCT),
 }
 
 
 # Constructor
-get_densenet = get_basenet_constructor(densenet_spec, DenseNet)
+get_naivenet = get_basenet_constructor(naivenet_spec, NaiveNet)
 
 
-def densenet_flex(**kwargs):
-    return get_densenet(None, **kwargs)
+def naivenet_flex(**kwargs):
+    return get_naivenet(None, **kwargs)
 
 
-def densenet28(**kwargs):
-    return get_densenet('28', **kwargs)
-
-
-def densenet37(**kwargs):
-    return get_densenet('37', **kwargs)
-
-
-def densenet45(**kwargs):
-    return get_densenet('45', **kwargs)
+def naivenet17(**kwargs):
+    return get_naivenet('17', **kwargs)

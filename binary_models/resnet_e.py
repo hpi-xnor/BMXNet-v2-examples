@@ -20,6 +20,7 @@
 """ResNets, implemented in Gluon."""
 from __future__ import division
 
+from binary_models.common_layers import add_initial_layers
 from binary_models.model_parameters import ModelParameters
 
 __all__ = ['ResNetE1', 'ResNetE2',
@@ -57,10 +58,11 @@ class BasicBlockE1(BasicBlockV1):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, *args, use_fp=False, use_pooling=False, write_on=0, slices=1, **kwargs):
+    def __init__(self, *args, use_fp=False, use_pooling=False, write_on=0, slices=1, num_groups=1, **kwargs):
         super(BasicBlockE1, self).__init__(*args, init=False, **kwargs)
         self.use_fp = use_fp
         self.use_pooling = use_pooling
+        self.num_groups = num_groups
         self.write_on = write_on
         self.slices = slices
         self.slice_width = self.channels // self.slices
@@ -78,7 +80,7 @@ class BasicBlockE1(BasicBlockV1):
                 self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
             if self.use_fp:
                 self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
-                                              in_channels=self.in_channels, prefix="sc_conv_"))
+                                              groups=self.num_groups, in_channels=self.in_channels, prefix="sc_conv_"))
             else:
                 self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=conv_stride, padding=0,
                                                       in_channels=self.in_channels, prefix="sc_qconv_"))
@@ -123,10 +125,12 @@ class BasicBlockE2(BasicBlockV2):
         Number of input channels. Default is 0, to infer from the graph.
     """
 
-    def __init__(self, *args, use_fp=False, use_pooling=False, write_on=0, slices=1, **kwargs):
+    def __init__(self, *args, use_fp=False, use_pooling=False, write_on=0, slices=1, num_groups=1,
+                 **kwargs):
         super(BasicBlockE2, self).__init__(*args, init=False, **kwargs)
         self.use_fp = use_fp
         self.use_pooling = use_pooling
+        self.num_groups = num_groups
         self.write_on = write_on
         self.slices = slices
         self.slice_width = self.channels // self.slices
@@ -143,7 +147,7 @@ class BasicBlockE2(BasicBlockV2):
                 self.downsample.add(nn.AvgPool2D(pool_size=2, strides=2, padding=0))
             if self.use_fp:
                 self.downsample.add(nn.Conv2D(self.channels, kernel_size=1, strides=conv_stride, use_bias=False,
-                                              in_channels=self.in_channels, prefix="sc_conv_"))
+                                              groups=self.num_groups, in_channels=self.in_channels, prefix="sc_conv_"))
             else:
                 self.downsample.add(nn.activated_conv(self.channels, kernel_size=1, stride=conv_stride, padding=0,
                                                       in_channels=self.in_channels, prefix="sc_qconv_"))
@@ -172,18 +176,20 @@ class BasicBlockE2(BasicBlockV2):
 
 
 class ResNetE(HybridBlock):
-    def __init__(self, channels, classes, use_fp, use_pooling, slices, **kwargs):
+    def __init__(self, channels, classes, use_fp=False, use_pooling=False, slices=1, num_groups=1, **kwargs):
         super(ResNetE, self).__init__(**kwargs)
         self.features = nn.HybridSequential(prefix='')
         self.output = nn.Dense(classes, in_units=channels[-1])
         self.use_fp = use_fp
         self.use_pooling = use_pooling
+        self.num_groups = num_groups
         self.slices = slices
 
     r"""Helper methods which are equal for both resnets"""
     def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0, **kwargs):
         kwargs["use_fp"] = self.use_fp
         kwargs["use_pooling"] = self.use_pooling
+        kwargs["num_groups"] = self.num_groups
 
         layer = nn.HybridSequential(prefix='stage%d_' % stage_index)
         # this tricks adds shortcut connections between original resnet blocks
@@ -230,40 +236,27 @@ class ResNetE1(ResNetE):
         Numbers of channels in each block. Length should be one larger than layers list.
     classes : int, default 1000
         Number of classification classes.
-    thumbnail : bool, default False
-        Enable thumbnail.
+    initial_layers : bool, default imagenet
+        Configure the initial layers.
     """
 
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False,
-                 use_fp=False, use_pooling=False, slices=1, **kwargs):
-        super(ResNetE1, self).__init__(channels, classes, use_fp, use_pooling, slices, **kwargs)
+    def __init__(self, block, layers, channels, classes=1000, initial_layers="imagenet", **kwargs):
+        super(ResNetE1, self).__init__(channels, classes, **kwargs)
         assert len(layers) == len(channels) - 1
 
-        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-        if thumbnail:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0,
-                                        use_bias=False))
-            # MXNet has a batch norm here, binary resnet performs better without
-            # self.features.add(nn.BatchNorm())
-        else:
-            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
+        with self.name_scope():
+            self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
+            add_initial_layers(initial_layers, self.features, channels[0])
             self.features.add(nn.BatchNorm())
+
+            for i, num_layer in enumerate(layers):
+                stride = 1 if i == 0 else 2
+                self.features.add(
+                    self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=channels[i]))
+
             self.features.add(nn.Activation('relu'))
-            self.features.add(nn.MaxPool2D(3, 2, 1))
-            self.features.add(nn.BatchNorm())
-
-        for i, num_layer in enumerate(layers):
-            stride = 1 if i == 0 else 2
-            self.features.add(
-                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=channels[i]))
-
-        # v1 MXNet example has these deactivated, blocks finish with batchnorm and relu
-        # but we need the relu, since we do not have activition in blocks
-        # self.features.add(nn.BatchNorm())
-        self.features.add(nn.Activation('relu'))
-
-        self.features.add(nn.GlobalAvgPool2D())
-        self.features.add(nn.Flatten())
+            self.features.add(nn.GlobalAvgPool2D())
+            self.features.add(nn.Flatten())
 
 
 class ResNetE2(ResNetE):
@@ -281,38 +274,29 @@ class ResNetE2(ResNetE):
         Numbers of channels in each block. Length should be one larger than layers list.
     classes : int, default 1000
         Number of classification classes.
-    thumbnail : bool, default False
-        Enable thumbnail.
+    initial_layers : bool, default imagenet
+        Configure the initial layers.
     """
 
-    def __init__(self, block, layers, channels, classes=1000, thumbnail=False,
-                 use_fp=False, use_pooling=False, slices=1, **kwargs):
-        super(ResNetE2, self).__init__(channels, classes, use_fp, use_pooling, slices, **kwargs)
+    def __init__(self, block, layers, channels, classes=1000, initial_layers="imagenet", **kwargs):
+        super(ResNetE2, self).__init__(channels, classes, **kwargs)
         assert len(layers) == len(channels) - 1
 
-        # self.features.add(nn.BatchNorm(scale=False, center=False))
-        self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
-        if thumbnail:
-            self.features.add(nn.Conv2D(channels[0], kernel_size=3, strides=1, padding=1, in_channels=0))
-        else:
-            self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
-            # fix_gamma=False missing ?
+        with self.name_scope():
+            self.features.add(nn.BatchNorm(scale=False, epsilon=2e-5))
+            add_initial_layers(initial_layers, self.features, channels[0])
+
+            in_channels = channels[0]
+            for i, num_layer in enumerate(layers):
+                stride = 1 if i == 0 else 2
+                self.features.add(
+                    self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels))
+                in_channels = channels[i + 1]
+
             self.features.add(nn.BatchNorm())
             self.features.add(nn.Activation('relu'))
-            self.features.add(nn.MaxPool2D(3, 2, 1))
-
-        in_channels = channels[0]
-        for i, num_layer in enumerate(layers):
-            stride = 1 if i == 0 else 2
-            self.features.add(
-                self._make_layer(block, num_layer, channels[i + 1], stride, i + 1, in_channels=in_channels))
-            in_channels = channels[i + 1]
-
-        # fix_gamma=False missing ?
-        self.features.add(nn.BatchNorm())
-        self.features.add(nn.Activation('relu'))
-        self.features.add(nn.GlobalAvgPool2D())
-        self.features.add(nn.Flatten())
+            self.features.add(nn.GlobalAvgPool2D())
+            self.features.add(nn.Flatten())
 
 
 class ResNetEParameters(ModelParameters):
@@ -327,12 +311,15 @@ class ResNetEParameters(ModelParameters):
         kwargs['slices'] = opt.slices
         kwargs['use_fp'] = opt.fp_downsample_sc
         kwargs['use_pooling'] = opt.pool_downsample_sc
+        kwargs['num_groups'] = opt.downsample_sc_groups
 
     def _add_arguments(self, parser):
         parser.add_argument('--fp-downsample-sc', action="store_true",
                             help='whether to use full precision for the 1x1 convolution at the downsample shortcut')
         parser.add_argument('--pool-downsample-sc', action="store_true",
                             help='whether to use average pooling instead of stride 2 at the downsample shortcut')
+        parser.add_argument('--downsample-sc-groups', type=int, default=1,
+                            help='how many groups to use for downsampling shortcut')
         parser.add_argument('--slices', type=int, default=1, choices=[1, 2, 4, 8],
                             help='in how many slices should a block be split (1, 2, 4, or 8)')
 

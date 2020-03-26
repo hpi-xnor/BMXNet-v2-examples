@@ -17,128 +17,28 @@
 
 from __future__ import division
 
-import argparse, time, sys
-import math
-from graphviz import ExecutableNotFound
-from mxnet import gluon, lr_scheduler
-from mxnet import profiler
-import binary_models
-from util.log_progress import log_progress
-from mxnet import autograd
-from mxnet.test_utils import get_mnist_iterator
-from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
-from mxnet.gluon import nn
+import os
+import logging
+import sys
+import time
 from contextlib import redirect_stdout
+
 import numpy as np
+import mxnet as mx
+from gluoncv.utils import LRScheduler, LRSequential
+from graphviz import ExecutableNotFound
+from mxnet import autograd
+from mxnet import gluon
+from mxnet import profiler
+from mxnet.metric import Accuracy, TopKAccuracy, CompositeEvalMetric
 
-from datasets.data import *
+import binary_models
+from datasets.util import *
+from util.arg_parser import get_parser
+from util.log_progress import log_progress
 
 
-# CLI
-def get_parser(training=True):
-    parser = argparse.ArgumentParser(description='Train a model for image classification.')
-    model = parser.add_argument_group('Model', 'parameters for the model definition')
-    model.add_argument('--bits', type=int, default=1,
-                       help='number of weight bits')
-    model.add_argument('--bits-a', type=int, default=1,
-                       help='number of bits for activation')
-    model.add_argument('--activation-method', type=str, default='det_sign',
-                       choices=['identity', 'approx_sign', 'relu', 'clip', 'leaky_clip',
-                                'det_sign', 'sign_approx_sign', 'round', 'dorefa'],
-                       help='choose activation in QActivation layer')
-    model.add_argument('--weight-quantization', type=str, default='det_sign',
-                       choices=['det_sign', 'dorefa', 'identity', 'sign_approx_sign'],
-                       help='choose weight quantization')
-    model.add_argument('--clip-threshold', type=float, default=1.0,
-                       help='clipping threshold, default is 1.0.')
-    model.add_argument('--model', type=str, required=True,
-                       help='type of model to use. see vision_model for options.')
-    model.add_argument('--use-pretrained', action='store_true',
-                       help='enable using pretrained model from gluon.')
-    model.add_argument('--approximation', type=str, default='',
-                       choices=['', 'xnor', 'binet', 'abc'],
-                       help='Choose kind of convolution block approximation. Can include scaling or multiple binary convolutions.')
-    if training:
-        train = parser.add_argument_group('Training', 'parameters for training')
-        train.add_argument('--augmentation-level', type=int, choices=[1, 2, 3], default=3,
-                            help='augmentation level, default is 1, possible values are: 1, 2, 3.')
-        train.add_argument('--dry-run', action='store_true',
-                            help='do not train, only do other things, e.g. output args and plot network')
-        train.add_argument('--epochs', type=int, default=120,
-                            help='number of training epochs.')
-        train.add_argument('--initialization', type=str, choices=["default", "gaussian", "msraprelu_avg", "msraprelu_in"], default="gaussian",
-                            help='weight initialization, default is xavier with magnitude 2.')
-        train.add_argument('--kvstore', type=str, default='device',
-                            help='kvstore to use for trainer/module.')
-        train.add_argument('--log', type=str, default='image-classification.log',
-                            help='Filename and path where log file should be stored.')
-        train.add_argument('--log-interval', type=int, default=50,
-                            help='Number of batches to wait before logging.')
-        train.add_argument('--lr', type=float, default=0.01,
-                            help='learning rate. default is 0.01.')
-        train.add_argument('--lr-factor', default=0.1, type=float,
-                            help='learning rate decay ratio')
-        train.add_argument('--lr-steps', default='30,60,90', type=str,
-                            help='list of learning rate decay epochs as in str')
-        train.add_argument('--momentum', type=float, default=0.9,
-                            help='momentum value for optimizer, default is 0.9.')
-        train.add_argument('--optimizer', type=str, default="adam",
-                            help='the optimizer to use. default is adam.')
-        train.add_argument('--plot-network', type=str, default=None,
-                            help='Whether to output the network plot.')
-        train.add_argument('--profile', action='store_true',
-                            help='Option to turn on memory profiling for front-end, and prints out '
-                                 'the memory usage by python function at the end.')
-        train.add_argument('--progress', type=str, default="",
-                            help='save progress and ETA to this file')
-        train.add_argument('--resume', type=str, default='',
-                            help='path to saved weight where you want resume')
-        train.add_argument('--resume-states', type=str, default='',
-                            help='path of trainer state to load from.')
-        train.add_argument('--save-frequency', default=None, type=int,
-                            help='epoch frequence to save model, best model will always be saved')
-        train.add_argument('--seed', type=int, default=123,
-                            help='random seed to use. Default=123.')
-        train.add_argument('--start-epoch', default=0, type=int,
-                            help='starting epoch, 0 for fresh training, > 0 to resume')
-        train.add_argument('--wd', type=float, default=0.0,
-                            help='weight decay rate. default is 0.0.')
-        train.add_argument('--write-summary', type=str, default=None,
-                            help='write tensorboard summaries to this path')
-        train.add_argument('--clip-threshold-steps', type=csv_args_dict, default="",
-                            help='lower clip threshold to this at certain times, k:v pairs (eg. 10:1.5,20:1.0)')
-    parser.add_argument('--batch-size', type=int, default=32,
-                        help='training batch size per device (CPU/GPU).')
-    parser.add_argument('--builtin-profiler', type=int, default=0,
-                        help='Enable built-in profiler (0=off, 1=on)')
-    parser.add_argument('--data-dir', type=str, default='',
-                        help='training directory of imagenet images, contains train/val subdirs.')
-    parser.add_argument('--data-path', type=str, default='.',
-                        help='training directory where cifar10 / mnist data should be or is saved.')
-    parser.add_argument('--dataset', type=str, default='cifar10', choices=['mnist', 'cifar10', 'imagenet', 'dummy'],
-                        help='dataset to use. options are mnist, cifar10, imagenet and dummy.')
-    parser.add_argument('--dtype', default='float32', type=str,
-                        help='data type, float32 or float16 if applicable')
-    parser.add_argument('--gpus', type=str, default='',
-                        help='ordinates of gpus to use, can be "0,1,2" or empty for cpu only.')
-    parser.add_argument('--cpu', action="store_const", dest="gpus", const="",
-                        help='to explicitly use cpu')
-    parser.add_argument('--mean-subtraction', action="store_true",
-                        help='whether to subtract ImageNet mean from data')
-    parser.add_argument('--mode', type=str, choices=["symbolic", "imperative", "hybrid"], default="imperative",
-                        help='mode in which to train the model. options are symbolic, imperative, hybrid')
-    parser.add_argument('--num-worker', '-j', dest='num_workers', default=4, type=int,
-                        help='number of workers of dataloader.')
-    parser.add_argument('--prefix', default='', type=str,
-                        help='path to checkpoint prefix, default is current working dir')
-    first_args = sys.argv[1:][:]
-    for pattern in ("--help", "-h"):
-        if pattern in first_args:
-            first_args.remove(pattern)
-    first_parse, _ = parser.parse_known_args(first_args)
-    for model_parameter in binary_models.get_model_parameters():
-        model_parameter.add_group(parser, first_parse.model)
-    return parser
+# CLI: see util/arg_parser.py
 
 
 def get_model_path(opt):
@@ -157,26 +57,17 @@ def _load_model(opt):
     return mx.model.load_checkpoint(model_prefix, opt.start_epoch)
 
 
-def _get_scaling_legacy(opt):
-    model_name, *modifier = opt.model.split('-')
-    opt.model = model_name
-    scaling = ""
-    if 'binet_scaled' in modifier:
-        scaling = "binet"
-    if 'scaled' in modifier:
-        assert scaling == "", "Contradicting model modifiers: binet_scaled, scaled. Please specify only on scaling method"
-        scaling = "xnor"
-    return scaling
-
-
 def get_model(opt, ctx):
     """Model initialization."""
     kwargs = {'ctx': ctx, 'pretrained': opt.use_pretrained, 'classes': get_num_classes(opt.dataset)}
     if opt.model.startswith('vgg'):
         kwargs['batch_norm'] = opt.batch_norm
 
-    if any(opt.model.startswith(name) for name in ['resnet', 'binet', 'densenet']) and get_shape(opt)[2] < 50:
-        kwargs['thumbnail'] = True
+    thumbnail_models = ['resnet', 'binet', 'densenet', 'meliusnet']
+    if any(opt.model.startswith(name) for name in thumbnail_models) and get_shape(opt)[2] < 50:
+        kwargs['initial_layers'] = "thumbnail"
+    else:
+        kwargs['initial_layers'] = opt.initial_layers
 
     for model_parameter in binary_models.get_model_parameters():
         model_parameter.set_args_for_model(opt, kwargs)
@@ -187,8 +78,7 @@ def get_model(opt, ctx):
         net, arg_params, aux_params = _load_model(opt)
         skip_init = True
     else:
-        approximation = opt.approximation or _get_scaling_legacy(opt)
-        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, approximation=approximation,
+        with gluon.nn.set_binary_layer_config(bits=opt.bits, bits_a=opt.bits_a, approximation=opt.approximation,
                                               grad_cancel=opt.clip_threshold, activation=opt.activation_method,
                                               weight_quantization=opt.weight_quantization):
             net = binary_models.get_model(opt.model, **kwargs)
@@ -205,27 +95,6 @@ def get_model(opt, ctx):
     return net, arg_params, aux_params
 
 
-def get_num_classes(dataset):
-    return {'mnist': 10, 'cifar10': 10, 'imagenet': 1000, 'dummy': 1000}[dataset]
-
-
-def get_default_save_frequency(dataset):
-    return {'mnist': 10, 'cifar10': 10, 'imagenet': 1, 'dummy': 1}[dataset]
-
-
-def get_num_examples(dataset):
-    return {'mnist': 60000, 'cifar10': 50000, 'imagenet': 1281167, 'dummy': 1000}[dataset]
-
-
-def get_shape(opt):
-    if opt.dataset == 'mnist':
-        return (1, 1, 28, 28)
-    elif opt.dataset == 'cifar10':
-        return (1, 3, 32, 32)
-    elif opt.dataset == 'imagenet' or opt.dataset == 'dummy':
-        return (1, 3, 299, 299) if opt.model == 'inceptionv3' else (1, 3, 224, 224)
-
-
 def get_initializer():
     if opt.initialization == "default":
         return mx.init.Xavier(magnitude=2)
@@ -237,84 +106,44 @@ def get_initializer():
         return mx.init.MSRAPrelu(factor_type="in")
 
 
-def get_data_iters(opt, num_workers=1, rank=0):
-    """get dataset iterators"""
-    if opt.dry_run:
-        return None, None
-
-    if opt.dataset == 'mnist':
-        train_data, val_data = get_mnist_iterator(opt.batch_size, (1, 28, 28),
-                                                  num_parts=num_workers, part_index=rank)
-    elif opt.dataset == 'cifar10':
-        train_data, val_data = get_cifar10_iterator(opt.batch_size, (3, 32, 32), num_parts=num_workers, part_index=rank,
-                                                    dir=opt.data_path, aug_level=opt.augmentation_level,
-                                                    mean_subtraction=opt.mean_subtraction)
-    elif opt.dataset == 'imagenet':
-        if not opt.data_dir:
-            raise ValueError('Dir containing rec files is required for imagenet, please specify "--data-dir"')
-        if opt.model == 'inceptionv3':
-            train_data, val_data = get_imagenet_iterator(opt.data_dir, opt.batch_size, opt.num_workers, 299, opt.dtype)
-        else:
-            train_data, val_data = get_imagenet_iterator(opt.data_dir, opt.batch_size, opt.num_workers, 224, opt.dtype)
-    elif dataset == 'dummy':
-        if opt.model == 'inceptionv3':
-            train_data, val_data = dummy_iterator(opt.batch_size, (3, 299, 299))
-        else:
-            train_data, val_data = dummy_iterator(opt.batch_size, (3, 224, 224))
-    return train_data, val_data
-
-
-def test(ctx, val_data):
+def test(ctx, val_data, batch_fn, testing=False):
     metric.reset()
-    val_data.reset()
+    if hasattr(val_data, "reset"):
+        val_data.reset()
     for batch in val_data:
-        data = gluon.utils.split_and_load(batch.data[0], ctx_list=ctx, batch_axis=0)
-        label = gluon.utils.split_and_load(batch.label[0], ctx_list=ctx, batch_axis=0)
+        data, label = batch_fn(batch, ctx)
         outputs = []
         for x in data:
             outputs.append(net(x))
         metric.update(label, outputs)
+        if testing:
+            break
     return metric.get()
 
 
-def update_learning_rate(lr, trainer, epoch, ratio, steps):
-    """Set the learning rate to the initial value decayed by ratio every N epochs."""
-    new_lr = lr * (ratio ** int(np.sum(np.array(steps) < epoch)))
-    if trainer.learning_rate != new_lr:
-        logger.info('[Epoch %d] Change learning rate to %f', epoch, new_lr)
-    trainer.set_learning_rate(new_lr)
-    return trainer
+class LRTracker:
+    def __init__(self, trainer, summary_writer):
+        self.trainer = trainer
+        self.prev_lr = trainer.learning_rate
+        self.summary_writer = summary_writer
+
+    def __call__(self, epoch, global_step=0):
+        current_lr = self.trainer.learning_rate
+        if current_lr != self.prev_lr:
+            logger.info('[Epoch %d] Change learning rate to %f', epoch, current_lr)
+            self.prev_lr = current_lr
+        if self.summary_writer is not None:
+            self.summary_writer.add_scalar("training/lr", current_lr, global_step=global_step)
 
 
-def update_clip_threshold(current_clip_threshold, epoch, steps, q_activations,
-                          check_previous_epochs=False, check_only=False):
-    """Set the learning rate to the initial value decayed by ratio every N epochs."""
-    new_clip_threshold = current_clip_threshold
-
-    if check_previous_epochs:
-        for i in range(0, epoch):
-            new_clip_threshold = update_clip_threshold(current_clip_threshold, i, steps, check_only=True)
-
-    if epoch in steps:
-        new_clip_threshold = steps[epoch]
-
-    if new_clip_threshold != current_clip_threshold and not check_only:
-        for q_act in q_activations:
-            q_act.threshold = new_clip_threshold
-        logger.info('[Epoch %d] Change clip threshold to %f', epoch, new_clip_threshold)
-
-    return new_clip_threshold
-
-
-def save_checkpoint(trainer, epoch, top1, best_acc):
-    if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0:
+def save_checkpoint(trainer, epoch, top1, best_acc, force_save=False):
+    if opt.save_frequency and (epoch + 1) % opt.save_frequency == 0 or force_save:
         fname = os.path.join(opt.prefix, '%s_%sbit_%04d_acc_%.4f.{}' % (opt.model, opt.bits, epoch, top1))
         net.save_parameters(fname.format("params"))
         trainer.save_states(fname.format("states"))
         logger.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f',
                     epoch, fname.format("{params,states}"), top1)
-    if top1 > best_acc[0]:
-        best_acc[0] = top1
+    if top1 > best_acc:
         fname = os.path.join(opt.prefix, '%s_%sbit_best.{}' % (opt.model, opt.bits))
         net.save_parameters(fname.format("params"))
         trainer.save_states(fname.format("states"))
@@ -329,67 +158,99 @@ def get_dummy_data(opt, ctx):
 
 
 def _get_lr_scheduler(opt):
-    if 'lr_factor' not in opt or opt.lr_factor >= 1:
-        return opt.lr, None
-    global lr_steps, batch_size
-    lr, lr_factor = opt.lr, opt.lr_factor
-    start_epoch = opt.start_epoch
-    num_examples = get_num_examples(opt.dataset)
-    its_per_epoch = math.ceil(num_examples / batch_size)
+    lr_factor = opt.lr_factor
+    lr_steps = [int(i) for i in opt.lr_steps.split(',')]
+    lr_steps = [e - opt.warmup_epochs for e in lr_steps]
+    num_batches = get_num_examples(opt.dataset) // batch_size
 
-    # move forward to start epoch
-    for s in lr_steps:
-        if start_epoch >= s:
-            lr *= lr_factor
-    if lr != opt.lr:
-        logger.info('Adjust learning rate to %e for epoch %d', lr, start_epoch)
-
-    steps = [its_per_epoch * (epoch - start_epoch)
-             for epoch in lr_steps if epoch - start_epoch > 0]
-    if steps:
-        return lr, lr_scheduler.MultiFactorScheduler(step=steps, factor=lr_factor)
-    else:
-        return lr, None
+    lr_scheduler = LRSequential([
+        LRScheduler('linear', base_lr=0, target_lr=opt.lr,
+                    nepochs=opt.warmup_epochs, iters_per_epoch=num_batches),
+        LRScheduler(opt.lr_mode, base_lr=opt.lr, target_lr=0,
+                    nepochs=opt.epochs - opt.warmup_epochs,
+                    iters_per_epoch=num_batches,
+                    step_epoch=lr_steps,
+                    step_factor=lr_factor, power=2)
+    ])
+    return lr_scheduler
 
 
-def get_optimizer(opt, with_scheduler=False):
-    # learning rate
-    lr, lr_scheduler = _get_lr_scheduler(opt)
+def get_optimizer(opt):
     params = {
-        'learning_rate': lr,
         'wd': opt.wd,
-        'multi_precision': True
+        'lr_scheduler': _get_lr_scheduler(opt)
     }
-    if with_scheduler:
-        params['lr_scheduler'] = lr_scheduler
-    if opt.optimizer == "sgd":
+    if opt.dtype != 'float32':
+        params['multi_precision'] = True
+    if opt.optimizer == "sgd" or opt.optimizer == "nag":
         params['momentum'] = opt.momentum
     return opt.optimizer, params
 
 
 def get_blocks(net, search_for_type, result=()):
+    """
+    Returns a tuple containing all layer objects of type search_for_type in net
+    """
     for _, child in net._children.items():
         if isinstance(child, search_for_type):
-            return result + (child,)
-        result = get_blocks(child, search_for_type, result=result)
+            result = result + (child,)
+        else:
+            result = get_blocks(child, search_for_type, result=result)
     return result
+
+
+def plot_network():
+    x = mx.sym.var('data')
+    sym = net(x)
+    with open('{}.txt'.format(opt.plot_network), 'w') as f:
+        with redirect_stdout(f):
+            mx.viz.print_summary(sym, shape={"data": get_shape(opt)}, quantized_bitwidth=opt.bits)
+    graph = mx.viz.plot_network(sym, shape={"data": get_shape(opt)})
+    try:
+        graph.render('{}.gv'.format(opt.plot_network))
+    except OSError as e:
+        logger.error(e)
+    except ExecutableNotFound as e:
+        logger.error(e)
+
+
+def log_metrics(phase, name, acc, epoch, summary_writer, global_step, sep=": "):
+    logger.info('[Epoch %d] %s%s%s=%f, %s=%f' % (epoch, phase, sep, name[0], acc[0], name[1], acc[1]))
+    if summary_writer:
+        summary_writer.add_scalar("%s/%s" % (name[0], phase), acc[0], global_step=global_step)
+        summary_writer.add_scalar("%s/%s" % (name[1], phase), acc[1], global_step=global_step)
+
+
+def write_net_summaries(summary_writer, single_ctx, global_step=0, write_grads=True):
+    if summary_writer is None:
+        return
+
+    params = net.collect_params(".*weight|.*bias")
+    for name, param in params.items():
+        summary_writer.add_histogram(tag=name, values=param.data(single_ctx),
+                                     global_step=global_step, bins=1000)
+        if write_grads:
+            summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(single_ctx),
+                                         global_step=global_step, bins=1000)
 
 
 def train(opt, ctx):
     if isinstance(ctx, mx.Context):
         ctx = [ctx]
     kv = mx.kv.create(opt.kvstore)
-    train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
+    train_data, val_data, batch_fn = get_data_iters(opt)
     net.collect_params().reset_ctx(ctx)
-    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore = kv)
-    if opt.resume_states is not '':
+    trainer = gluon.Trainer(net.collect_params(), *get_optimizer(opt), kvstore=kv)
+    if opt.resume_states != '':
         trainer.load_states(opt.resume_states)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
 
     # dummy forward pass to initialize binary layers
-    with autograd.record():
-        data, label = get_dummy_data(opt, ctx[0])
-        output = net(data)
+    data, _ = get_dummy_data(opt, ctx[0])
+    _ = net(data)
+
+    if opt.mode == 'hybrid':
+        net.hybridize()
 
     # set batch norm wd to zero
     params = net.collect_params('.*batchnorm.*')
@@ -397,52 +258,34 @@ def train(opt, ctx):
         params[key].wd_mult = 0.0
 
     if opt.plot_network is not None:
-        x = mx.sym.var('data')
-        sym = net(x)
-        with open('{}.txt'.format(opt.plot_network), 'w') as f:
-            with redirect_stdout(f):
-                mx.viz.print_summary(sym, shape={"data": get_shape(opt)}, quantized_bitwidth=opt.bits)
-        a = mx.viz.plot_network(sym, shape={"data": get_shape(opt)})
-        try:
-            a.render('{}.gv'.format(opt.plot_network))
-        except OSError as e:
-            logger.error(e)
-        except ExecutableNotFound as e:
-            logger.error(e)
+        plot_network()
 
     if opt.dry_run:
         return
 
     summary_writer = None
-    global_step = 0
     if opt.write_summary:
         from mxboard import SummaryWriter
-        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
-        params = net.collect_params(".*weight|.*bias")
-        for name, param in params.items():
-            summary_writer.add_histogram(tag=name, values=param.data(ctx[0]),
-                                         global_step=global_step, bins=1000)
-            summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(ctx[0]),
-                                         global_step=global_step, bins=1000)
+        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=60)
+    write_net_summaries(summary_writer, ctx[0], write_grads=False)
+    track_lr = LRTracker(trainer, summary_writer)
 
     total_time = 0
     num_epochs = 0
-    best_acc = [0]
+    best_acc = 0
     epoch_time = -1
-    q_activations = get_blocks(net, nn.QActivation)
-    update_clip_threshold(opt.clip_threshold, opt.start_epoch, opt.clip_threshold_steps, q_activations,
-                          check_previous_epochs=True)
+    num_examples = get_num_examples(opt.dataset)
+
     for epoch in range(opt.start_epoch, opt.epochs):
-        trainer = update_learning_rate(opt.lr, trainer, epoch, opt.lr_factor, lr_steps)
-        if epoch != opt.start_epoch:
-            update_clip_threshold(opt.clip_threshold, epoch, opt.clip_threshold_steps, q_activations)
+        global_step = epoch * num_examples
+        track_lr(epoch, global_step)
         tic = time.time()
-        train_data.reset()
+        if hasattr(train_data, "reset"):
+            train_data.reset()
         metric.reset()
         btic = time.time()
         for i, batch in enumerate(train_data):
-            data = gluon.utils.split_and_load(batch.data[0].astype(opt.dtype), ctx_list=ctx, batch_axis=0)
-            label = gluon.utils.split_and_load(batch.label[0].astype(opt.dtype), ctx_list=ctx, batch_axis=0)
+            data, label = batch_fn(batch, ctx)
             outputs = []
             Ls = []
             with autograd.record():
@@ -454,28 +297,24 @@ def train(opt, ctx):
                     Ls.append(L)
                     outputs.append(z)
                 autograd.backward(Ls)
-            trainer.step(batch.data[0].shape[0])
+            trainer.step(batch_size)
             metric.update(label, outputs)
+
             if opt.log_interval and not (i+1) % opt.log_interval:
                 name, acc = metric.get()
-                logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f, %s=%f'%(
-                    epoch, i, batch_size/(time.time()-btic), name[0], acc[0], name[1], acc[1]))
-                log_progress(get_num_examples(opt.dataset), opt, epoch, i, time.time()-tic, epoch_time)
-                if summary_writer:
-                    summary_writer.add_scalar("batch-%s" % name[0], acc[0], global_step=global_step)
-                    summary_writer.add_scalar("batch-%s" % name[1], acc[1], global_step=global_step)
+                log_metrics("batch", name, acc, epoch, summary_writer, global_step,
+                            sep=" [%d]\tSpeed: %f samples/sec\t" % (i, batch_size/(time.time()-btic)))
+                log_progress(num_examples, opt, epoch, i, time.time()-tic, epoch_time)
+                track_lr(epoch, global_step)
+
             btic = time.time()
             global_step += batch_size
+            if opt.test_run:
+                break
 
         epoch_time = time.time()-tic
 
-        if summary_writer:
-            params = net.collect_params(".*weight|.*bias")
-            for name, param in params.items():
-                summary_writer.add_histogram(tag=name, values=param.data(ctx[0]),
-                                             global_step=global_step, bins=1000)
-                summary_writer.add_histogram(tag="%s-grad" % name, values=param.grad(ctx[0]),
-                                             global_step=global_step, bins=1000)
+        write_net_summaries(summary_writer, ctx[0], global_step=global_step)
 
         # First epoch will usually be much slower than the subsequent epics,
         # so don't factor into the average
@@ -483,65 +322,51 @@ def train(opt, ctx):
             total_time = total_time + epoch_time
         num_epochs = num_epochs + 1
 
+        logger.info('[Epoch %d] time cost: %f' % (epoch, epoch_time))
+        if summary_writer:
+            summary_writer.add_scalar("training/epoch", epoch, global_step=global_step)
+            summary_writer.add_scalar("training/epoch-time", epoch_time, global_step=global_step)
+
         # train
         name, acc = metric.get()
-        logger.info('[Epoch %d] training: %s=%f, %s=%f'%(epoch, name[0], acc[0], name[1], acc[1]))
-        logger.info('[Epoch %d] time cost: %f'%(epoch, epoch_time))
-        if summary_writer:
-            summary_writer.add_scalar("epoch", epoch, global_step=global_step)
-            summary_writer.add_scalar("epoch-time", epoch_time, global_step=global_step)
-            summary_writer.add_scalar("training-%s" % name[0], acc[0], global_step=global_step)
-            summary_writer.add_scalar("training-%s" % name[1], acc[1], global_step=global_step)
+        log_metrics("training", name, acc, epoch, summary_writer, global_step)
 
         # test
-        name, val_acc = test(ctx, val_data)
-        logger.info('[Epoch %d] validation: %s=%f, %s=%f'%(epoch, name[0], val_acc[0], name[1], val_acc[1]))
-        if summary_writer:
-            summary_writer.add_scalar("validation-%s" % name[0], val_acc[0], global_step=global_step)
-            summary_writer.add_scalar("validation-%s" % name[1], val_acc[1], global_step=global_step)
+        name, val_acc = test(ctx, val_data, batch_fn, opt.test_run)
+        log_metrics("validation", name, val_acc, epoch, summary_writer, global_step)
+
+        if opt.interrupt_at is not None and epoch + 1 == opt.interrupt_at:
+            logging.info("[Epoch %d] Interrupting run now because 'interrupt-at' was set to %d..." %
+                         (epoch, opt.interrupt_at))
+            save_checkpoint(trainer, epoch, val_acc[0], best_acc, force_save=True)
+            sys.exit(3)
 
         # save model if meet requirements
         save_checkpoint(trainer, epoch, val_acc[0], best_acc)
+        best_acc = max(best_acc, val_acc[0])
+
     if num_epochs > 1:
         print('Average epoch time: {}'.format(float(total_time)/(num_epochs - 1)))
 
     if opt.mode != 'hybrid':
         net.hybridize()
-        # dummy forward pass to save model
-        with autograd.record():
-            data, label = get_dummy_data(opt, ctx[0])
-            output = net(data)
+    # dummy forward pass to save model
+    data, _ = get_dummy_data(opt, ctx[0])
+    _ = net(data)
     net.export(os.path.join(opt.prefix, "image-classifier-{}bit".format(opt.bits)), epoch=0)
 
 
 def train_symbolic(opt, ctx):
     kv = mx.kv.create(opt.kvstore)
-    train_data, val_data = get_data_iters(opt, kv.num_workers, kv.rank)
+    train_data, val_data, _ = get_data_iters(opt)
 
-    # dummy forward pass with gluon to initialize binary layers
     if not opt.start_epoch > 0:
-        with autograd.record():
-            data, label = get_dummy_data(opt, context[0])
-            output = net(data)
-
-        data = mx.sym.var('data')
-        out = net(data)
-        softmax = mx.sym.SoftmaxOutput(out, name='softmax')
-        mod = mx.mod.Module(softmax, context=ctx)
-
         if opt.plot_network is not None:
-            with open('{}.txt'.format(opt.plot_network), 'w') as f:
-                with redirect_stdout(f):
-                    mx.viz.print_summary(out, shape={"data": get_shape(opt)}, quantized_bitwidth=opt.bits)
-        a = mx.viz.plot_network(out, shape={"data": get_shape(opt)})
-        try:
-            a.render('{}.gv'.format(opt.plot_network))
-        except ExecutableNotFound as e:
-            logger.error(e)
+            plot_network()
     else:
         mod = mx.mod.Module(context=ctx, symbol=net)
 
-    optimizer, optimizer_params = get_optimizer(opt, with_scheduler=True)
+    optimizer, optimizer_params = get_optimizer(opt)
     model_path = get_model_path(opt)
     eval_metric = ['accuracy', mx.metric.create('top_k_accuracy', top_k=5)]
 
@@ -551,7 +376,7 @@ def train_symbolic(opt, ctx):
     summary_writer = None
     if opt.write_summary:
         from mxboard import SummaryWriter
-        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=30)
+        summary_writer = SummaryWriter(logdir=opt.write_summary, flush_secs=60)
 
     batch_end_cbs = [
         mx.callback.Speedometer(batch_size, max(1, opt.log_interval))
@@ -568,7 +393,7 @@ def train_symbolic(opt, ctx):
                 summary_writer.add_scalar(tag=name, value=value, global_step=param.epoch)
         batch_end_cbs.append(metric_callback)
 
-        def param_callback(epoch, symbol, arg_params, aux_params):
+        def param_callback(epoch, _, arg_params, __):
             for name in arg_params:
                 summary_writer.add_histogram(tag=name, values=arg_params[name], global_step=epoch, bins=1000)
         epoch_end_cbs.append(param_callback)
@@ -596,8 +421,6 @@ def main():
     if opt.mode == 'symbolic':
         train_symbolic(opt, context)
     else:
-        if opt.mode == 'hybrid':
-            net.hybridize()
         train(opt, context)
     if opt.builtin_profiler > 0:
         profiler.set_state('stop')
@@ -632,7 +455,6 @@ if __name__ == '__main__':
     num_gpus = len(context)
     batch_size *= max(1, num_gpus)
     opt.batch_size = batch_size
-    lr_steps = [int(x) for x in opt.lr_steps.split(',') if x.strip()]
     metric = CompositeEvalMetric([Accuracy(), TopKAccuracy(5)])
 
     net, arg_params, aux_params = get_model(opt, context)
