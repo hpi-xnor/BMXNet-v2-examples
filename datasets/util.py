@@ -2,13 +2,14 @@ from datasets.cifar10 import Cifar10
 from datasets.dummy_imagenet import DummyImagenet
 from datasets.mnist import Mnist
 from .base import Dataset
+from .cifar100 import Cifar100
 from .imagenet import Imagenet
 
 __all__ = ["get_num_classes", "get_default_save_frequency", "get_num_examples", "get_shape", "get_data_iters",
            "get_all_dataset_names", "Dataset"]
 
 
-ALL_DATASETS = [Imagenet, Cifar10, Mnist, DummyImagenet]
+ALL_DATASETS = [Imagenet, Cifar10, Cifar100, Mnist, DummyImagenet]
 
 
 def _get_all_datasets():
