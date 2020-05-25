@@ -25,7 +25,12 @@ class DummyIter(mx.io.DataIter):
 
 
 def dummy_iterator(batch_size, data_shape):
-    return DummyIter(batch_size, data_shape), DummyIter(batch_size, data_shape)
+    def batch_fn(batch, ctx):
+        data = mx.gluon.utils.split_and_load(batch.data[0], ctx_list=ctx, batch_axis=0)
+        label = mx.gluon.utils.split_and_load(batch.label[0], ctx_list=ctx, batch_axis=0)
+        return data, label
+
+    return DummyIter(batch_size, data_shape), DummyIter(batch_size, data_shape), batch_fn
 
 
 class DummyImagenet(Imagenet):
