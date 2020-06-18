@@ -46,7 +46,7 @@ def add_initial_layers(variant, seq_block, channels, norm_layer=nn.BatchNorm, no
             stem.add(nn.Conv2D(channels=stem_width * 2, kernel_size=3, strides=1, padding=1, groups=8, use_bias=False))
         seq_block.add(stem)
     else:
-        RuntimeError("Unknown initial layer variant: {}".format(variant))
+        raise RuntimeError("Unknown initial layer variant: {}".format(variant))
     seq_block.add(norm_layer(**norm_kwargs))
     seq_block.add(nn.Activation('relu'))
     seq_block.add(nn.MaxPool2D(pool_size=3, strides=2, padding=1))
